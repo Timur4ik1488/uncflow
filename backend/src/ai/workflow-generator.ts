@@ -15,7 +15,7 @@ export class AiWorkflowGenerator {
 
     if (text.includes('каждый день') || text.includes('расписани') || text.includes('часов') || text.includes(':00') || text.includes('cron')) {
       triggerType = 'trigger.schedule';
-      triggerName = 'Расписание';
+      triggerName = 'Запуск по расписанию';
       if (text.includes('14:00')) cronValue = '0 14 * * *';
       else if (text.includes('02:00') || text.includes('ноч')) cronValue = '0 2 * * *';
     } else if (text.includes('коммит') || text.includes('pr') || text.includes('ci') || text.includes('webhook')) {
@@ -52,7 +52,7 @@ export class AiWorkflowGenerator {
       type: 'source.local',
       name: 'Кодовая база',
       position: { x: 260, y: 220 },
-      settings: { path: 'test-dataset/training-project' }
+      settings: { path: '.' }
     });
 
     edges.push({ id: 'e-trig-src', source: 'node-trigger', target: 'node-source' });

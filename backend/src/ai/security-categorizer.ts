@@ -1,6 +1,8 @@
 import * as https from 'https';
 import * as crypto from 'crypto';
 import type { Finding } from '../types/findings.ts';
+import { maskSensitiveText } from '../validators/submission-validator.ts';
+import type { LlmProvider } from './llm-provider.ts';
 
 export interface GigaChatSecurityAnalysis {
   findingId: string;
@@ -355,13 +357,36 @@ export class SmartSecurityCategorizer {
    * Main Categorization Cascade:
    * Tier 1 (Rules) -> Tier 2 (Heuristics) -> Tier 3 (GigaChat LLM)
    */
-  public static async analyzeFinding(finding: Finding, useGigaChat: boolean = true): Promise<GigaChatSecurityAnalysis> {
+  public static async analyzeFinding(
+    finding: Finding,
+    providerOrUseGigaChat: boolean | LlmProvider = true
+  ): Promise<GigaChatSecurityAnalysis> {
     const fAny = finding as any;
     const key = fAny.advisoryId || fAny.class || finding.category;
 
+    // Determine LLM provider
+    let provider: LlmProvider | null = null;
+    let isOffline = false;
+    if (typeof providerOrUseGigaChat === 'object' && providerOrUseGigaChat !== null) {
+      if (providerOrUseGigaChat.id === 'offline-smart') {
+        isOffline = true;
+      } else {
+        provider = providerOrUseGigaChat.isAvailable() ? providerOrUseGigaChat : null;
+      }
+    } else if (providerOrUseGigaChat === false) {
+      isOffline = true;
+    } else if (providerOrUseGigaChat === true && this.gigachat.isAvailable()) {
+      provider = {
+        id: 'gigachat',
+        name: 'Сбер GigaChat-Pro',
+        isAvailable: () => true,
+        chat: (sys, user, model) => this.gigachat.chatWithSystem(sys, user, model || 'GigaChat-Pro')
+      };
+    }
+
     // 1. Tier 1: Deterministic rules (instant, 100% precision)
     const ruleMatch = this.TIER1_RULES[key];
-    if (ruleMatch && !useGigaChat) {
+    if (ruleMatch && isOffline) {
       return {
         findingId: `${finding.category}-${key}-${finding.path}`,
         category: finding.category,
@@ -376,10 +401,10 @@ export class SmartSecurityCategorizer {
       };
     }
 
-    // 2. Tier 3: GigaChat LLM Enhancement
-    if (useGigaChat && this.gigachat.isAvailable()) {
+    // 2. Tier 3: LLM Enhancement
+    if (provider) {
       try {
-        const llmResult = await this.callGigaChatForFinding(finding);
+        const llmResult = await this.callLlmForFinding(finding, provider);
         if (llmResult) {
           return {
             findingId: `${finding.category}-${key}-${finding.path}`,
@@ -395,7 +420,7 @@ export class SmartSecurityCategorizer {
           };
         }
       } catch (err) {
-        console.warn('[SmartSecurityCategorizer] GigaChat error, using fallback:', err);
+        console.warn('[SmartSecurityCategorizer] LLM error, using fallback:', err);
       }
     }
 
@@ -415,9 +440,9 @@ export class SmartSecurityCategorizer {
   }
 
   /**
-   * Calls GigaChat with prompt tailored for AppSec analysis
+   * Calls LLM provider with prompt tailored for AppSec analysis (masked)
    */
-  private static async callGigaChatForFinding(finding: any): Promise<any | null> {
+  private static async callLlmForFinding(finding: any, provider: LlmProvider): Promise<any | null> {
     const systemPrompt = `Ты ведущий AppSec-эксперт и аудитор безопасности информационных систем.
 Твоя задача — провести глубокую оценку найденной уязвимости и вернуть результат СТРОГО в формате JSON без маркдауна:
 {
@@ -430,7 +455,7 @@ export class SmartSecurityCategorizer {
   "verificationStep": "Шаг проверки"
 }`;
 
-    const userMessage = `Уязвимость:
+    const rawUserMessage = `Уязвимость:
 Категория: ${finding.category}
 Файл: ${finding.path}
 Класс / CVE: ${finding.class || finding.advisoryId || '-'}
@@ -438,7 +463,10 @@ export class SmartSecurityCategorizer {
 Описание: ${finding.description}
 Текущая рекомендация: ${finding.remediation}`;
 
-    const responseText = await this.gigachat.chatWithSystem(systemPrompt, userMessage, 'GigaChat-Pro');
+    // Strictly mask any raw secret values before sending to LLM
+    const safeUserMessage = maskSensitiveText(rawUserMessage);
+
+    const responseText = await provider.chat(systemPrompt, safeUserMessage);
     if (!responseText) return null;
 
     try {
@@ -455,7 +483,10 @@ export class SmartSecurityCategorizer {
   /**
    * Generates Executive CISO Summary across all findings
    */
-  public static async generateExecutiveSummary(findings: Finding[]): Promise<SecurityExecutiveSummary> {
+  public static async generateExecutiveSummary(
+    findings: Finding[],
+    provider?: LlmProvider
+  ): Promise<SecurityExecutiveSummary> {
     const total = findings.length;
     const critical = findings.filter(f => f.severity === 'CRITICAL').length;
     const high = findings.filter(f => f.severity === 'HIGH').length;
@@ -468,7 +499,14 @@ export class SmartSecurityCategorizer {
     let cisoSummary = '';
     let analyzedWith = 'Встроенный каскадный AI (Tier 1 Rules + Tier 2 Heuristics)';
 
-    if (this.gigachat.isAvailable()) {
+    const effectiveProvider = provider && provider.isAvailable() ? provider : (this.gigachat.isAvailable() ? {
+      id: 'gigachat',
+      name: 'Сбер GigaChat-Pro (Tier 3 LLM)',
+      isAvailable: () => true,
+      chat: (s: string, u: string) => this.gigachat.chatWithSystem(s, u, 'GigaChat-Pro')
+    } : null);
+
+    if (effectiveProvider) {
       try {
         const prompt = `Ты CISO крупной финтех-компании.
 Составь краткое (3-4 предложения) официальное резюме аудита безопасности проекта.
@@ -476,13 +514,14 @@ export class SmartSecurityCategorizer {
 Ключевые классы проблем: SQL-инъекции, уязвимые зависимости, открытые маршруты авторизации, ослабленный TLS и хардкод паролей/секретов.
 Напиши чёткий вердикт: релиз блокирован или нет, и какие 3 приоритетных шага должны сделать разработчики в первые 24 часа.`;
 
-        const resp = await this.gigachat.chatWithSystem('Ты главный офицер безопасности (CISO). Пиши строго и по делу.', prompt, 'GigaChat-Pro');
+        const safePrompt = maskSensitiveText(prompt);
+        const resp = await effectiveProvider.chat('Ты главный офицер безопасности (CISO). Пиши строго и по делу.', safePrompt);
         if (resp && resp.length > 50) {
           cisoSummary = resp;
-          analyzedWith = 'Сбер GigaChat-Pro (Tier 3 LLM)';
+          analyzedWith = effectiveProvider.name;
         }
       } catch (err) {
-        console.warn('[SmartSecurityCategorizer] GigaChat executive summary failed:', err);
+        console.warn('[SmartSecurityCategorizer] Executive summary failed:', err);
       }
     }
 

@@ -8,6 +8,7 @@ import { ScaAnalyzer } from '../analyzers/sca/index.ts';
 import { SastAnalyzer } from '../analyzers/sast/index.ts';
 import type { Finding } from '../types/findings.ts';
 import { SmartSecurityCategorizer, GigaChatClient } from '../ai/security-categorizer.ts';
+import { LlmProviderFactory } from '../ai/llm-provider.ts';
 import { db } from '../storage/db.ts';
 import { sendYandexMail, formatSecurityEmailHtml } from '../notifications/mailer.ts';
 import { sanitizeFindingForExport, validateSubmissionReport } from '../validators/submission-validator.ts';
@@ -731,25 +732,22 @@ export class NodeRegistry {
       ],
       run: async (inputs, settings) => {
         const findings: Finding[] = inputs.allFindings || inputs.findings || [];
-        const useGigaChat = settings.provider === 'gigachat';
+        const providerType = settings.provider || 'gigachat';
 
-        if (useGigaChat) {
+        if (providerType === 'gigachat') {
           const creds = (settings.credentials || process.env.GIGACHAT_CREDENTIALS || '').trim();
-          if (!creds) {
-            throw new Error('Не указаны авторизационные данные Сбер GigaChat! Войдите под test/test или привяжите ключ в профиле пользователя.');
-          }
-          GigaChatClient.getInstance().reloadConfig(creds, settings.scope || process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS');
-          const token = await GigaChatClient.getInstance().getToken();
-          if (!token) {
-            throw new Error('Не удалось авторизоваться в Сбер GigaChat! Проверьте правильность GIGACHAT_CREDENTIALS в профиле пользователя.');
+          if (creds) {
+            GigaChatClient.getInstance().reloadConfig(creds, settings.scope || process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS');
           }
         }
 
+        const provider = LlmProviderFactory.getProvider(providerType);
+
         const analyses = await Promise.all(
-          findings.map(f => SmartSecurityCategorizer.analyzeFinding(f, useGigaChat))
+          findings.map(f => SmartSecurityCategorizer.analyzeFinding(f, provider))
         );
 
-        const executive = await SmartSecurityCategorizer.generateExecutiveSummary(findings);
+        const executive = await SmartSecurityCategorizer.generateExecutiveSummary(findings, provider);
 
         const explanations = analyses.map((a, idx) => {
           const f = findings[idx] as any;
