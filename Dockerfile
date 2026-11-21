@@ -2,6 +2,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+# Install system dependencies for Git repository cloning & TLS
+RUN apk add --no-cache git ca-certificates
+
 # Copy dependency files
 COPY package*.json ./
 COPY backend/package*.json ./backend/

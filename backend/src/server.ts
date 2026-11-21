@@ -1,30 +1,7 @@
+import './config/env.ts';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-
-// Automatic .env loading
-function loadEnvFile() {
-  const envPath = path.resolve(process.cwd(), '.env');
-  if (fs.existsSync(envPath)) {
-    const content = fs.readFileSync(envPath, 'utf-8');
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx > 0) {
-        const key = trimmed.slice(0, eqIdx).trim();
-        let val = trimmed.slice(eqIdx + 1).trim();
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.slice(1, -1);
-        }
-        if (val) {
-          process.env[key] = val;
-        }
-      }
-    }
-  }
-}
-loadEnvFile();
 
 import { NodeRegistry } from './nodes/registry.ts';
 import { WorkflowEngine } from './engine/workflow-engine.ts';
@@ -38,6 +15,18 @@ import { sendYandexMail } from './notifications/mailer.ts';
 import type { WorkflowGraph, WorkflowExecutionEvent } from './engine/types.ts';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
+
+export function getPublicBaseUrl(req?: http.IncomingMessage): string {
+  if (process.env.PUBLIC_BASE_URL) {
+    return process.env.PUBLIC_BASE_URL.replace(/\/+$/, '');
+  }
+  if (req && req.headers) {
+    const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
+    return `${proto}://${host}`;
+  }
+  return `http://localhost:${PORT}`;
+}
 
 const registry = new NodeRegistry();
 const engine = new WorkflowEngine(registry);
@@ -62,7 +51,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const url = new URL(req.url || '/', getPublicBaseUrl(req));
   const pathname = url.pathname;
 
   try {
@@ -262,7 +251,7 @@ const server = http.createServer(async (req, res) => {
         }));
         return;
       }
-      const redirectUri = encodeURIComponent(`http://${req.headers.host}/api/auth/github/callback`);
+      const redirectUri = encodeURIComponent(`${getPublicBaseUrl(req)}/api/auth/github/callback`);
       const ghAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=repo,read:user,user:email`;
       res.writeHead(302, { 'Location': ghAuthUrl });
       res.end();
@@ -780,7 +769,7 @@ const server = http.createServer(async (req, res) => {
     // 7. GET /api/ci/config
     if (req.method === 'GET' && pathname === '/api/ci/config') {
       const type = url.searchParams.get('type') || 'github';
-      const serverUrl = `http://${req.headers.host}`;
+      const serverUrl = getPublicBaseUrl(req);
       const config = type === 'gitlab'
         ? CiCdManager.generateGitLabCi(serverUrl)
         : CiCdManager.generateGitHubWorkflow(serverUrl);
@@ -861,7 +850,7 @@ const server = http.createServer(async (req, res) => {
 
     // GET /api/webhook/info (List of webhook endpoints and setup documentation)
     if (req.method === 'GET' && pathname === '/api/webhook/info') {
-      const serverUrl = `http://${req.headers.host}`;
+      const serverUrl = getPublicBaseUrl(req);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         endpoints: {
@@ -1025,9 +1014,9 @@ const server = http.createServer(async (req, res) => {
       // Inject repoUrl and branch into source node if present
       for (const n of graph.nodes) {
         if (n.type === 'source.git' && repoUrl) {
-          n.parameters = n.parameters || {};
-          n.parameters.repoUrl = repoUrl;
-          n.parameters.branch = branch;
+          n.settings = n.settings || {};
+          n.settings.repoUrl = repoUrl;
+          n.settings.branch = branch;
         }
       }
 
@@ -1036,12 +1025,12 @@ const server = http.createServer(async (req, res) => {
       if (user) {
         for (const n of graph.nodes) {
           if (n.type === 'source.git') {
-            n.parameters = n.parameters || {};
-            if (!n.parameters.token) {
+            n.settings = n.settings || {};
+            if (!n.settings.token) {
               if (repoUrl.includes('gitverse.ru') && user.gitverseToken) {
-                n.parameters.token = user.gitverseToken;
+                n.settings.token = user.gitverseToken;
               } else if (user.githubToken) {
-                n.parameters.token = user.githubToken;
+                n.settings.token = user.githubToken;
               }
             }
           }
@@ -1321,7 +1310,7 @@ async function getUserFromRequest(req: http.IncomingMessage): Promise<UserProfil
     if (match) token = match[1];
   }
   if (!token) {
-    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const url = new URL(req.url || '/', getPublicBaseUrl(req));
     token = url.searchParams.get('token') || '';
   }
   if (!token) return null;

@@ -1,6 +1,6 @@
 import * as https from 'https';
 import * as crypto from 'crypto';
-import type { Finding } from '../scanners/types.ts';
+import type { Finding } from '../types/findings.ts';
 
 export interface GigaChatSecurityAnalysis {
   findingId: string;

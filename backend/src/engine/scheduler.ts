@@ -1,6 +1,6 @@
 import type { WorkflowEngine } from './workflow-engine.ts';
 import type { TemplateCatalog, WorkflowTemplate } from '../templates/catalog.ts';
-import type { DatabaseStorage } from '../storage/db.ts';
+import type { DatabaseService } from '../storage/db.ts';
 import type { WorkflowExecutionEvent } from './types.ts';
 
 export interface ScheduledJobInfo {
@@ -175,7 +175,7 @@ export class CronParser {
 export class WorkflowScheduler {
   private engine: WorkflowEngine;
   private templates: TemplateCatalog;
-  private db: DatabaseStorage;
+  private db: DatabaseService;
   private broadcastEvent: (event: WorkflowExecutionEvent) => void;
   private timer: NodeJS.Timeout | null = null;
   private lastTriggeredMinutes: Map<string, string> = new Map();
@@ -184,7 +184,7 @@ export class WorkflowScheduler {
   constructor(
     engine: WorkflowEngine,
     templates: TemplateCatalog,
-    db: DatabaseStorage,
+    db: DatabaseService,
     broadcastEvent: (event: WorkflowExecutionEvent) => void
   ) {
     this.engine = engine;

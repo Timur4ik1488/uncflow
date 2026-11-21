@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "npm run build --prefix backend",
     "start": "node --experimental-strip-types backend/src/server.ts",
     "dev": "node --experimental-strip-types backend/src/server.ts",
     "test": "node --experimental-strip-types backend/test/ground-truth.test.ts",

@@ -17,6 +17,10 @@ const execFileAsync = promisify(execFile);
  * Clones or updates a remote Git repository into a local cache directory.
  * Supports public/private repositories, branches, subdirectories, and hackathon local datasets.
  */
+function maskGitError(msg: string): string {
+  return (msg || '').replace(/https:\/\/[^@\s]+@/g, 'https://***@');
+}
+
 async function cloneOrUpdateRepo(
   repoUrl: string,
   branch: string = 'main',
@@ -28,24 +32,18 @@ async function cloneOrUpdateRepo(
     return path.resolve(repoUrl);
   }
 
-  const localTraining = path.resolve(process.cwd(), 'test-dataset/training-project');
-  // Hackathon training dataset fast-path:
-  if (repoUrl.includes('TBagirov/training') && fs.existsSync(localTraining) && (!subDir || subDir === 'training-project')) {
-    return localTraining;
-  }
-
   const cacheBase = path.resolve(process.cwd(), '.cache/repos');
   if (!fs.existsSync(cacheBase)) {
     fs.mkdirSync(cacheBase, { recursive: true });
   }
 
-  // Safe slug for directory naming
+  // Safe slug for directory naming (isolated per slug + branch)
   const slug = repoUrl
     .replace(/^https?:\/\//, '')
     .replace(/[^a-zA-Z0-9_-]/g, '_')
     .substring(0, 50);
-
-  const targetDir = path.join(cacheBase, slug);
+  const cleanBranch = (branch || 'main').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const targetDir = path.join(cacheBase, `${slug}_${cleanBranch}`);
 
   // Authenticated URL injection
   let authUrl = repoUrl;
@@ -54,12 +52,12 @@ async function cloneOrUpdateRepo(
   }
 
   if (fs.existsSync(path.join(targetDir, '.git'))) {
-    // Repository already exists: attempt checkout and pull
+    // Repository already exists: fetch and reset hard
     try {
-      await execFileAsync('git', ['checkout', branch], { cwd: targetDir });
-      await execFileAsync('git', ['pull', '--depth', String(depth || 1)], { cwd: targetDir });
-    } catch {
-      // Offline fallback: keep existing working tree
+      await execFileAsync('git', ['fetch', 'origin', branch, '--depth', String(depth || 1)], { cwd: targetDir });
+      await execFileAsync('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: targetDir });
+    } catch (err: any) {
+      console.warn(`[Git Cache] Предупреждение обновления репозитория ${maskGitError(repoUrl)} (${branch}): ${maskGitError(err.message)}`);
     }
   } else {
     // Fresh clone
@@ -69,11 +67,11 @@ async function cloneOrUpdateRepo(
     try {
       await execFileAsync('git', ['clone', '--depth', String(depth || 1), '-b', branch, authUrl, targetDir]);
     } catch (err: any) {
-      // Retry without -b if branch name differs from remote default (e.g. master vs main)
+      // Retry without -b if branch name differs from remote default
       try {
         await execFileAsync('git', ['clone', '--depth', String(depth || 1), authUrl, targetDir]);
       } catch (cloneErr: any) {
-        throw new Error(`Не удалось клонировать Git-репозиторий: ${cloneErr.message || err.message}. Проверьте URL репозитория, доступ в интернет и PAT-токен.`);
+        throw new Error(`Не удалось клонировать Git-репозиторий: ${maskGitError(cloneErr.message || err.message)}. Проверьте URL репозитория, доступ в интернет и PAT-токен.`);
       }
     }
   }
@@ -673,7 +671,7 @@ export class NodeRegistry {
         { name: 'credentials', label: 'GigaChat Credentials', type: 'password' },
         { name: 'scope', label: 'Scope', type: 'string', default: 'GIGACHAT_API_PERS' }
       ],
-      run: async (inputs, settings, context) => {
+      run: async (inputs: any, settings: any, context: any) => {
         const explainer = this.getNode('ai.explainer');
         if (explainer) {
           return explainer.run(inputs, { ...settings, provider: 'gigachat' }, context);
@@ -1144,7 +1142,7 @@ export class NodeRegistry {
         { name: 'chatId', label: 'Chat ID / Канал', type: 'string', default: '@security_audit' },
         { name: 'onlyOnCritical', label: 'Только при критических', type: 'boolean', default: false }
       ],
-      run: async (inputs, settings, context) => {
+      run: async (inputs: any, settings: any, context: any) => {
         const channelNode = this.getNode('notify.channel');
         if (channelNode) {
           return channelNode.run(inputs, {
@@ -1174,7 +1172,7 @@ export class NodeRegistry {
         { name: 'secretHeader', label: 'Секретный токен', type: 'password' },
         { name: 'onlyOnCritical', label: 'Только при Critical/High', type: 'boolean', default: false }
       ],
-      run: async (inputs, settings, context) => {
+      run: async (inputs: any, settings: any, context: any) => {
         const channelNode = this.getNode('notify.channel');
         if (channelNode) {
           return channelNode.run(inputs, {

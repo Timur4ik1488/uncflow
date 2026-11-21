@@ -1,6 +1,6 @@
 import type { Finding } from '../types/findings.ts';
 
-export type PortType = 'any' | 'codePath' | 'findings' | 'aiReport' | 'boolean' | 'string' | 'reportFiles';
+export type PortType = 'any' | 'codePath' | 'findings' | 'aiReport' | 'boolean' | 'string' | 'number' | 'reportFiles';
 
 export interface NodePort {
   id: string;
@@ -31,7 +31,7 @@ export interface ExecutionContext {
 export interface NodeDefinition {
   type: string;
   title: string;
-  category: 'Triggers' | 'Sources' | 'Scanners' | 'Logic' | 'AI' | 'Reports' | 'Notifications';
+  category: 'Triggers' | 'Sources' | 'Scanners' | 'Logic' | 'AI' | 'Reports' | 'Notifications' | 'Storage';
   icon?: string;
   color?: string;
   description: string;
