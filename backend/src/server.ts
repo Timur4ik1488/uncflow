@@ -161,10 +161,13 @@ const server = http.createServer(async (req, res) => {
       const email = (body.email || '').trim().toLowerCase();
       const password = body.password || '';
 
-      const user = await db.getUserByEmail(email);
+      let user = await db.getUserByEmail(email);
+      if (!user && (email === 'test' || email === 'test@uncflow.local' || email === 'test@uncflow.io')) {
+        user = await db.getUserById('user_test');
+      }
       if (!user || !user.passwordHash || !SecretVault.verifyPassword(password, user.passwordHash)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Неверный email или пароль' }));
+        res.end(JSON.stringify({ error: 'Неверный логин или пароль. Для показа на защите войдите как test / test' }));
         return;
       }
 
@@ -371,6 +374,15 @@ const server = http.createServer(async (req, res) => {
       if (body.email !== undefined && body.email.includes('@')) updates.email = body.email.trim().toLowerCase();
       if (body.gitverseUsername !== undefined) updates.gitverseUsername = body.gitverseUsername.trim();
       if (body.gitverseToken !== undefined) updates.gitverseToken = body.gitverseToken.trim();
+      if (body.gigachatCredentials !== undefined) updates.gigachatCredentials = body.gigachatCredentials.trim();
+      if (body.gigachatScope !== undefined) updates.gigachatScope = body.gigachatScope.trim();
+      if (body.telegramBotToken !== undefined) updates.telegramBotToken = body.telegramBotToken.trim();
+      if (body.telegramChatId !== undefined) updates.telegramChatId = body.telegramChatId.trim();
+      if (body.yandexMailUser !== undefined) updates.yandexMailUser = body.yandexMailUser.trim();
+      if (body.yandexMailPassword !== undefined) updates.yandexMailPassword = body.yandexMailPassword.trim();
+      if (body.yandexMailTo !== undefined) updates.yandexMailTo = body.yandexMailTo.trim();
+      if (body.webhookUrl !== undefined) updates.webhookUrl = body.webhookUrl.trim();
+      if (body.webhookSecret !== undefined) updates.webhookSecret = body.webhookSecret.trim();
       if (body.githubToken !== undefined) {
         const ghToken = body.githubToken.trim();
         updates.githubToken = ghToken;
@@ -535,10 +547,10 @@ const server = http.createServer(async (req, res) => {
         initialData.userId = user.id;
         initialData.user = sanitizeUser(user);
 
-        // Auto-inject user's GitHub / GitVerse token into any source.git node with empty token
+        // Auto-inject user's encrypted-then-decrypted profile tokens into nodes if empty
         for (const node of graph.nodes) {
+          node.settings = node.settings || {};
           if (node.type === 'source.git') {
-            node.settings = node.settings || {};
             const repoUrl = (node.settings.repoUrl || '').trim();
             const hasToken = node.settings.token && node.settings.token.trim();
             if (!hasToken) {
@@ -549,6 +561,35 @@ const server = http.createServer(async (req, res) => {
                 node.settings.token = user.gitverseToken;
                 console.log(`[Workflow Run] Авто-подстановка токена GitVerse пользователя ${user.name} для ${repoUrl}`);
               }
+            }
+          } else if (node.type === 'ai.explainer' || node.type === 'ai.gigachat') {
+            if (!node.settings.credentials && user.gigachatCredentials) {
+              node.settings.credentials = user.gigachatCredentials;
+            }
+            if (!node.settings.scope && user.gigachatScope) {
+              node.settings.scope = user.gigachatScope;
+            }
+          } else if (node.type === 'notify.channel' || node.type === 'notify.dispatch' || node.type === 'notify.telegram') {
+            if (!node.settings.telegramBotToken && user.telegramBotToken) {
+              node.settings.telegramBotToken = user.telegramBotToken;
+            }
+            if (!node.settings.telegramChatId && user.telegramChatId) {
+              node.settings.telegramChatId = user.telegramChatId;
+            }
+            if (!node.settings.yandexUser && user.yandexMailUser) {
+              node.settings.yandexUser = user.yandexMailUser;
+            }
+            if (!node.settings.yandexPassword && user.yandexMailPassword) {
+              node.settings.yandexPassword = user.yandexMailPassword;
+            }
+            if (!node.settings.yandexTo && user.yandexMailTo) {
+              node.settings.yandexTo = user.yandexMailTo;
+            }
+            if (!node.settings.webhookUrl && user.webhookUrl) {
+              node.settings.webhookUrl = user.webhookUrl;
+            }
+            if (!node.settings.webhookSecret && user.webhookSecret) {
+              node.settings.webhookSecret = user.webhookSecret;
             }
           }
         }
@@ -632,11 +673,34 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 6. POST /api/workflow/run-node (Single node test run / data inspector)
-    if (req.method === 'POST' && pathname === '/api/workflow/run-node') {
+    // 6. POST /api/workflow/run-node or /api/node/execute (Single node test run / data inspector)
+    if (req.method === 'POST' && (pathname === '/api/workflow/run-node' || pathname === '/api/node/execute')) {
+      const user = await getUserFromRequest(req);
       const body = await parseJsonBody(req);
       const nodeInstance = body.node;
       const inputs = body.inputs || {};
+
+      if (user && nodeInstance) {
+        nodeInstance.settings = nodeInstance.settings || {};
+        if (nodeInstance.type === 'source.git') {
+          const repoUrl = (nodeInstance.settings.repoUrl || '').trim();
+          if (!nodeInstance.settings.token) {
+            if (repoUrl.includes('github.com') && user.githubToken) nodeInstance.settings.token = user.githubToken;
+            else if (repoUrl.includes('gitverse.ru') && user.gitverseToken) nodeInstance.settings.token = user.gitverseToken;
+          }
+        } else if (nodeInstance.type === 'ai.explainer' || nodeInstance.type === 'ai.gigachat') {
+          if (!nodeInstance.settings.credentials && user.gigachatCredentials) nodeInstance.settings.credentials = user.gigachatCredentials;
+          if (!nodeInstance.settings.scope && user.gigachatScope) nodeInstance.settings.scope = user.gigachatScope;
+        } else if (nodeInstance.type === 'notify.channel' || nodeInstance.type === 'notify.dispatch' || nodeInstance.type === 'notify.telegram') {
+          if (!nodeInstance.settings.telegramBotToken && user.telegramBotToken) nodeInstance.settings.telegramBotToken = user.telegramBotToken;
+          if (!nodeInstance.settings.telegramChatId && user.telegramChatId) nodeInstance.settings.telegramChatId = user.telegramChatId;
+          if (!nodeInstance.settings.yandexUser && user.yandexMailUser) nodeInstance.settings.yandexUser = user.yandexMailUser;
+          if (!nodeInstance.settings.yandexPassword && user.yandexMailPassword) nodeInstance.settings.yandexPassword = user.yandexMailPassword;
+          if (!nodeInstance.settings.yandexTo && user.yandexMailTo) nodeInstance.settings.yandexTo = user.yandexMailTo;
+          if (!nodeInstance.settings.webhookUrl && user.webhookUrl) nodeInstance.settings.webhookUrl = user.webhookUrl;
+          if (!nodeInstance.settings.webhookSecret && user.webhookSecret) nodeInstance.settings.webhookSecret = user.webhookSecret;
+        }
+      }
 
       const singleResult = await engine.runSingleNode(nodeInstance, inputs);
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1204,6 +1268,19 @@ function sanitizeUser(user: UserProfile) {
     gitverseUsername: user.gitverseUsername,
     hasGitverseToken: Boolean(user.gitverseToken),
     gitverseTokenMasked: user.gitverseToken ? SecretVault.mask(user.gitverseToken) : null,
+    hasGigachatCredentials: Boolean(user.gigachatCredentials),
+    gigachatCredentialsMasked: user.gigachatCredentials ? SecretVault.mask(user.gigachatCredentials) : null,
+    gigachatScope: user.gigachatScope || 'GIGACHAT_API_PERS',
+    hasTelegramBotToken: Boolean(user.telegramBotToken),
+    telegramBotTokenMasked: user.telegramBotToken ? SecretVault.mask(user.telegramBotToken) : null,
+    telegramChatId: user.telegramChatId || '',
+    yandexMailUser: user.yandexMailUser || '',
+    hasYandexMailPassword: Boolean(user.yandexMailPassword),
+    yandexMailPasswordMasked: user.yandexMailPassword ? '••••••••' : null,
+    yandexMailTo: user.yandexMailTo || '',
+    webhookUrl: user.webhookUrl || '',
+    hasWebhookSecret: Boolean(user.webhookSecret),
+    webhookSecretMasked: user.webhookSecret ? SecretVault.mask(user.webhookSecret) : null,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
   };

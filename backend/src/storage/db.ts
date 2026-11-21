@@ -19,6 +19,15 @@ export interface UserProfile {
   githubToken?: string;
   gitverseUsername?: string;
   gitverseToken?: string;
+  gigachatCredentials?: string;
+  gigachatScope?: string;
+  telegramBotToken?: string;
+  telegramChatId?: string;
+  yandexMailUser?: string;
+  yandexMailPassword?: string;
+  yandexMailTo?: string;
+  webhookUrl?: string;
+  webhookSecret?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -329,6 +338,73 @@ export class DatabaseService {
     `;
 
     await client.query(schemaSql);
+
+    // Schema Migrations: add integration & encrypted vault token columns if not exist
+    try {
+      await client.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS gigachat_credentials TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS gigachat_scope VARCHAR(64);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_bot_token TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(128);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS yandex_mail_user VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS yandex_mail_password TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS yandex_mail_to VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_url TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_secret TEXT;
+      `);
+    } catch (migErr: any) {
+      console.warn('⚠️ [PostgreSQL Migration Note]:', migErr.message);
+    }
+
+    // Seed / Sync Test Account (test / test) with all .env tokens encrypted in Vault
+    try {
+      const testHash = SecretVault.hashPassword('test');
+      const envGhToken = DatabaseService.encryptSecret(process.env.GITHUB_TOKEN);
+      const envGvToken = DatabaseService.encryptSecret(process.env.GITVERSE_TOKEN);
+      const envGigaCreds = DatabaseService.encryptSecret(process.env.GIGACHAT_CREDENTIALS || process.env.SBER_GIGACHAT_CREDENTIALS);
+      const envGigaScope = process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS';
+      const envTgToken = DatabaseService.encryptSecret(process.env.TELEGRAM_BOT_TOKEN);
+      const envTgChat = process.env.TELEGRAM_CHAT_ID || '';
+      const envYandexUser = process.env.YANDEX_MAIL_USER || '';
+      const envYandexPass = DatabaseService.encryptSecret(process.env.YANDEX_MAIL_PASSWORD);
+      const envYandexTo = process.env.YANDEX_MAIL_TO || '';
+      const envWebhookUrl = process.env.WEBHOOK_URL || '';
+      const envWebhookSecret = DatabaseService.encryptSecret(process.env.WEBHOOK_SECRET);
+
+      await client.query(`
+        INSERT INTO users (
+          id, email, password_hash, name, avatar_url,
+          github_token, gitverse_token, gigachat_credentials, gigachat_scope,
+          telegram_bot_token, telegram_chat_id, yandex_mail_user, yandex_mail_password,
+          yandex_mail_to, webhook_url, webhook_secret, created_at, updated_at
+        ) VALUES (
+          'user_test', 'test', $1, 'Тестовый Эксперт (Защита)', 'https://api.dicebear.com/7.x/bottts/svg?seed=uncflow-test',
+          $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW()
+        )
+        ON CONFLICT (email) DO UPDATE SET
+          password_hash = $1,
+          name = 'Тестовый Эксперт (Защита)',
+          github_token = COALESCE(EXCLUDED.github_token, users.github_token),
+          gitverse_token = COALESCE(EXCLUDED.gitverse_token, users.gitverse_token),
+          gigachat_credentials = COALESCE(EXCLUDED.gigachat_credentials, users.gigachat_credentials),
+          gigachat_scope = COALESCE(EXCLUDED.gigachat_scope, users.gigachat_scope),
+          telegram_bot_token = COALESCE(EXCLUDED.telegram_bot_token, users.telegram_bot_token),
+          telegram_chat_id = COALESCE(EXCLUDED.telegram_chat_id, users.telegram_chat_id),
+          yandex_mail_user = COALESCE(EXCLUDED.yandex_mail_user, users.yandex_mail_user),
+          yandex_mail_password = COALESCE(EXCLUDED.yandex_mail_password, users.yandex_mail_password),
+          yandex_mail_to = COALESCE(EXCLUDED.yandex_mail_to, users.yandex_mail_to),
+          webhook_url = COALESCE(EXCLUDED.webhook_url, users.webhook_url),
+          webhook_secret = COALESCE(EXCLUDED.webhook_secret, users.webhook_secret),
+          updated_at = NOW()
+      `, [
+        testHash, envGhToken, envGvToken, envGigaCreds, envGigaScope,
+        envTgToken, envTgChat, envYandexUser, envYandexPass, envYandexTo,
+        envWebhookUrl, envWebhookSecret
+      ]);
+      console.log('🛡️ [Vault & Profiles]: Test account (test / test) seeded with encrypted credentials from .env');
+    } catch (testErr: any) {
+      console.warn('⚠️ [PostgreSQL Test User Seed Note]:', testErr.message);
+    }
 
     // Seed demo user in PostgreSQL if empty
     try {
@@ -1073,6 +1149,17 @@ export class DatabaseService {
     return null;
   }
 
+  public static encryptSecret(val?: string | null): string | null {
+    if (val === undefined || val === null) return null;
+    const trimmed = String(val).trim();
+    if (!trimmed) return '';
+    const parts = trimmed.split(':');
+    if (parts.length === 3 && parts[0].length === 32 && parts[1].length === 32) {
+      return trimmed;
+    }
+    return SecretVault.encrypt(trimmed);
+  }
+
   public async updateUserProfile(id: string, updates: Partial<UserProfile>): Promise<UserProfile | null> {
     const existing = await this.getUserById(id);
     if (!existing) return null;
@@ -1096,8 +1183,17 @@ export class DatabaseService {
              github_token = COALESCE($7, github_token),
              gitverse_username = COALESCE($8, gitverse_username),
              gitverse_token = COALESCE($9, gitverse_token),
+             gigachat_credentials = COALESCE($10, gigachat_credentials),
+             gigachat_scope = COALESCE($11, gigachat_scope),
+             telegram_bot_token = COALESCE($12, telegram_bot_token),
+             telegram_chat_id = COALESCE($13, telegram_chat_id),
+             yandex_mail_user = COALESCE($14, yandex_mail_user),
+             yandex_mail_password = COALESCE($15, yandex_mail_password),
+             yandex_mail_to = COALESCE($16, yandex_mail_to),
+             webhook_url = COALESCE($17, webhook_url),
+             webhook_secret = COALESCE($18, webhook_secret),
              updated_at = NOW()
-           WHERE id = $10`,
+           WHERE id = $19`,
           [
             updates.name !== undefined ? updates.name : null,
             updates.email !== undefined ? updates.email.trim().toLowerCase() : null,
@@ -1105,9 +1201,18 @@ export class DatabaseService {
             updates.avatarUrl !== undefined ? updates.avatarUrl : null,
             updates.githubId !== undefined ? updates.githubId : null,
             updates.githubUsername !== undefined ? updates.githubUsername : null,
-            updates.githubToken !== undefined ? updates.githubToken : null,
+            updates.githubToken !== undefined ? DatabaseService.encryptSecret(updates.githubToken) : null,
             updates.gitverseUsername !== undefined ? updates.gitverseUsername : null,
-            updates.gitverseToken !== undefined ? updates.gitverseToken : null,
+            updates.gitverseToken !== undefined ? DatabaseService.encryptSecret(updates.gitverseToken) : null,
+            updates.gigachatCredentials !== undefined ? DatabaseService.encryptSecret(updates.gigachatCredentials) : null,
+            updates.gigachatScope !== undefined ? updates.gigachatScope : null,
+            updates.telegramBotToken !== undefined ? DatabaseService.encryptSecret(updates.telegramBotToken) : null,
+            updates.telegramChatId !== undefined ? updates.telegramChatId : null,
+            updates.yandexMailUser !== undefined ? updates.yandexMailUser : null,
+            updates.yandexMailPassword !== undefined ? DatabaseService.encryptSecret(updates.yandexMailPassword) : null,
+            updates.yandexMailTo !== undefined ? updates.yandexMailTo : null,
+            updates.webhookUrl !== undefined ? updates.webhookUrl : null,
+            updates.webhookSecret !== undefined ? DatabaseService.encryptSecret(updates.webhookSecret) : null,
             id
           ]
         );
@@ -1194,9 +1299,18 @@ export class DatabaseService {
       avatarUrl: row.avatar_url,
       githubId: row.github_id,
       githubUsername: row.github_username,
-      githubToken: row.github_token,
+      githubToken: SecretVault.decrypt(row.github_token),
       gitverseUsername: row.gitverse_username,
-      gitverseToken: row.gitverse_token,
+      gitverseToken: SecretVault.decrypt(row.gitverse_token),
+      gigachatCredentials: SecretVault.decrypt(row.gigachat_credentials),
+      gigachatScope: row.gigachat_scope || 'GIGACHAT_API_PERS',
+      telegramBotToken: SecretVault.decrypt(row.telegram_bot_token),
+      telegramChatId: row.telegram_chat_id || '',
+      yandexMailUser: row.yandex_mail_user || '',
+      yandexMailPassword: SecretVault.decrypt(row.yandex_mail_password),
+      yandexMailTo: row.yandex_mail_to || '',
+      webhookUrl: row.webhook_url || '',
+      webhookSecret: SecretVault.decrypt(row.webhook_secret),
       createdAt: row.created_at?.toISOString ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at?.toISOString ? row.updated_at.toISOString() : String(row.updated_at)
     };

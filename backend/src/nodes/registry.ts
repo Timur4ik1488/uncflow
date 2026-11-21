@@ -24,6 +24,10 @@ async function cloneOrUpdateRepo(
   token?: string,
   depth: number = 1
 ): Promise<string> {
+  if (fs.existsSync(repoUrl) && fs.statSync(repoUrl).isDirectory()) {
+    return path.resolve(repoUrl);
+  }
+
   const localTraining = path.resolve(process.cwd(), 'test-dataset/training-project');
   // Hackathon training dataset fast-path:
   if (repoUrl.includes('TBagirov/training') && fs.existsSync(localTraining) && (!subDir || subDir === 'training-project')) {
@@ -296,7 +300,14 @@ export class NodeRegistry {
 
         const branch = (inputs.branch || settings.branch || 'main').trim();
         const subDir = (inputs.subDir || settings.subDir || '').trim();
-        const token = (inputs.token || settings.token || '').trim();
+        let token = (inputs.token || settings.token || '').trim();
+        if (!token) {
+          if (repoUrl.includes('gitverse.ru')) {
+            token = (process.env.GITVERSE_TOKEN || '').trim();
+          } else if (repoUrl.includes('github.com')) {
+            token = (process.env.GITHUB_TOKEN || '').trim();
+          }
+        }
         const depth = Number(settings.depth) || 1;
 
         const resolvedCodePath = await cloneOrUpdateRepo(repoUrl, branch, subDir, token, depth);
@@ -584,9 +595,16 @@ export class NodeRegistry {
         const findings: Finding[] = inputs.allFindings || inputs.findings || [];
         const useGigaChat = settings.provider === 'gigachat';
 
-        const creds = (settings.credentials || process.env.GIGACHAT_CREDENTIALS || process.env.SBER_GIGACHAT_CREDENTIALS || '').trim();
-        if (creds) {
+        if (useGigaChat) {
+          const creds = (settings.credentials || '').trim();
+          if (!creds) {
+            throw new Error('Не указаны авторизационные данные Сбер GigaChat! Войдите под test/test или привяжите ключ в профиле пользователя.');
+          }
           GigaChatClient.getInstance().reloadConfig(creds, settings.scope || 'GIGACHAT_API_PERS');
+          const token = await GigaChatClient.getInstance().getToken();
+          if (!token) {
+            throw new Error('Не удалось авторизоваться в Сбер GigaChat! Проверьте правильность GIGACHAT_CREDENTIALS в профиле пользователя.');
+          }
         }
 
         const analyses = await Promise.all(
@@ -974,46 +992,46 @@ export class NodeRegistry {
             }
           }
 
-          if (!tgBotToken || !tgChatId || (tgChatId === '@security_audit' && !process.env.TELEGRAM_BOT_TOKEN)) {
-            channelResults.telegram = {
-              sent: false,
-              simulated: true,
-              chatId: tgChatId,
-              messagePreview: tgMessage,
-              note: 'Токен Telegram не настроен в .env'
-            };
-          } else {
-            try {
-              const resp = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: tgChatId,
-                  text: tgMessage,
-                  parse_mode: 'Markdown'
-                }),
-                signal: AbortSignal.timeout(6000)
-              });
-              const resJson = await resp.json();
-              const ok = resp.ok && resJson.ok;
-              if (ok) anySent = true;
-              channelResults.telegram = {
-                sent: ok,
-                chatId: tgChatId,
-                messageId: resJson.result?.message_id,
-                error: ok ? undefined : (resJson.description || resp.statusText)
-              };
-            } catch (err: any) {
-              channelResults.telegram = { sent: false, error: err.message, chatId: tgChatId };
+          if (!tgBotToken || !tgChatId || tgChatId === '@security_audit') {
+            throw new Error('Не указан Telegram Bot Token или Chat ID! Укажите параметры в профиле (или войдите под test / test).');
+          }
+
+          try {
+            const resp = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: tgChatId,
+                text: tgMessage,
+                parse_mode: 'Markdown'
+              }),
+              signal: AbortSignal.timeout(8000)
+            });
+            const resJson = await resp.json();
+            const ok = resp.ok && resJson.ok;
+            if (!ok) {
+              throw new Error(`Telegram API: ${resJson.description || resp.statusText || 'Проверьте токен бота и ID чата'}`);
             }
+            anySent = true;
+            channelResults.telegram = {
+              sent: true,
+              chatId: tgChatId,
+              messageId: resJson.result?.message_id
+            };
+          } catch (err: any) {
+            throw new Error(`Не удалось доставить сообщение в Telegram: ${err.message}`);
           }
         }
 
         // 2. Yandex Mail
         if (selectedChannel === 'yandex') {
-          const yUser = (settings.yandexUser || process.env.YANDEX_MAIL_USER || '').trim();
-          const yPass = (settings.yandexPassword || process.env.YANDEX_MAIL_PASSWORD || '').trim();
-          const yTo = (settings.yandexTo || process.env.YANDEX_MAIL_TO || yUser || '').trim();
+          const yUser = (settings.yandexUser || '').trim();
+          const yPass = (settings.yandexPassword || '').trim();
+          const yTo = (settings.yandexTo || yUser || '').trim();
+
+          if (!yUser || !yPass || !yTo) {
+            throw new Error('Не указаны реквизиты Яндекс Почты (логин, пароль приложения или получатель)! Заполните их в профиле пользователя.');
+          }
 
           const emailSubject = `uncflow: Отчёт безопасности ${repoUrl ? `(${path.basename(repoUrl)})` : ''} — ${criticalCount > 0 ? '🚨 КРИТИЧЕСКИЕ РИСКИ' : '✅ ДОПУЩЕН'}`;
           const emailHtml = formatSecurityEmailHtml({
@@ -1030,69 +1048,77 @@ export class NodeRegistry {
             html: emailHtml
           });
 
-          if (mailRes.sent) anySent = true;
+          if (!mailRes.sent) {
+            throw new Error(`Не удалось отправить отчёт по Яндекс Почте: ${mailRes.error || 'Ошибка SMTP соединения'}`);
+          }
+          anySent = true;
           channelResults.yandexMail = mailRes;
         }
 
         // 3. Webhook
         if (selectedChannel === 'webhook') {
-          const whUrl = (settings.webhookUrl || process.env.WEBHOOK_URL || '').trim();
-          const whSecret = (settings.webhookSecret || process.env.WEBHOOK_SECRET || '').trim();
+          const whUrl = (settings.webhookUrl || '').trim();
+          const whSecret = (settings.webhookSecret || '').trim();
 
-          if (whUrl && whUrl !== 'https://webhook.site/test') {
-            const isRemote = repoUrl && (repoUrl.includes('github.com') || repoUrl.includes('gitverse.ru'));
-            const cleanRepo = repoUrl.replace(/\.git$/, '');
+          if (!whUrl) {
+            throw new Error('Не указан Webhook URL! Укажите адрес приёмника в профиле пользователя или параметрах блока.');
+          }
 
-            const payload = {
-              event: 'security_audit_completed',
-              text: `🛡️ uncflow: Аудит безопасности завершён для ${repoUrl || 'проекта'}. Найдено ${count} уязвимостей (${criticalList.length} CRIT, ${highList.length} HIGH).`,
-              timestamp: new Date().toISOString(),
-              repoUrl,
-              branch,
-              summary: {
-                totalFindings: count,
-                criticalCount: criticalList.length,
-                highCount: highList.length,
-                mediumCount: mediumList.length,
-                lowCount: lowList.length
-              },
-              findings: findings.map((f: any) => ({
-                category: f.category,
-                class: f.class || f.advisoryId || f.category,
-                severity: f.severity,
-                filePath: f.path,
-                line: f.line,
-                endLine: f.endLine,
-                description: f.description,
-                remediation: f.remediation,
-                sourceUrl: (isRemote && f.path) ? `${cleanRepo}/blob/${branch}/${f.path}${f.line ? '#L' + f.line : ''}` : null
-              }))
-            };
+          const isRemote = repoUrl && (repoUrl.includes('github.com') || repoUrl.includes('gitverse.ru'));
+          const cleanRepo = repoUrl.replace(/\.git$/, '');
 
-            try {
-              const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-              if (whSecret) headers['X-Security-Token'] = whSecret;
+          const payload = {
+            event: 'security_audit_completed',
+            text: `🛡️ uncflow: Аудит безопасности завершён для ${repoUrl || 'проекта'}. Найдено ${count} уязвимостей (${criticalList.length} CRIT, ${highList.length} HIGH).`,
+            timestamp: new Date().toISOString(),
+            repoUrl,
+            branch,
+            summary: {
+              totalFindings: count,
+              criticalCount: criticalList.length,
+              highCount: highList.length,
+              mediumCount: mediumList.length,
+              lowCount: lowList.length
+            },
+            findings: findings.map((f: any) => ({
+              category: f.category,
+              class: f.class || f.advisoryId || f.category,
+              severity: f.severity,
+              filePath: f.path,
+              line: f.line,
+              endLine: f.endLine,
+              description: f.description,
+              remediation: f.remediation,
+              sourceUrl: (isRemote && f.path) ? `${cleanRepo}/blob/${branch}/${f.path}${f.line ? '#L' + f.line : ''}` : null
+            }))
+          };
 
-              const resp = await fetch(whUrl, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(payload),
-                signal: AbortSignal.timeout(6000)
-              });
-              if (resp.ok) anySent = true;
-              channelResults.webhook = {
-                sent: resp.ok,
-                status: resp.status,
-                targetUrl: whUrl
-              };
-            } catch (err: any) {
-              channelResults.webhook = { sent: false, error: err.message, targetUrl: whUrl };
+          try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (whSecret) headers['X-Security-Token'] = whSecret;
+
+            const resp = await fetch(whUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(8000)
+            });
+            if (!resp.ok) {
+              throw new Error(`Приёмник Webhook вернул HTTP ${resp.status} ${resp.statusText}`);
             }
+            anySent = true;
+            channelResults.webhook = {
+              sent: true,
+              status: resp.status,
+              targetUrl: whUrl
+            };
+          } catch (err: any) {
+            throw new Error(`Не удалось доставить Webhook на ${whUrl}: ${err.message}`);
           }
         }
 
         return {
-          sent: anySent || Boolean(channelResults.telegram?.simulated),
+          sent: anySent,
           channels: channelResults,
           findingsCount: count,
           repoUrl,
@@ -1122,13 +1148,14 @@ export class NodeRegistry {
         const channelNode = this.getNode('notify.channel');
         if (channelNode) {
           return channelNode.run(inputs, {
-            enableTelegram: true,
-            telegramBotToken: settings.botToken,
-            telegramChatId: settings.chatId,
+            ...settings,
+            channel: 'telegram',
+            telegramBotToken: settings.botToken || settings.telegramBotToken,
+            telegramChatId: settings.chatId || settings.telegramChatId,
             onlyOnCritical: settings.onlyOnCritical
           }, context);
         }
-        return { sent: false };
+        throw new Error('Блок notify.channel не найден в системе.');
       }
     } as any);
 
@@ -1143,7 +1170,7 @@ export class NodeRegistry {
       inputs: [{ id: 'payload', label: 'Данные', type: 'any' }, { id: 'findings', label: 'Находки', type: 'findings' }],
       outputs: [{ id: 'sent', label: 'Статус', type: 'boolean' }],
       settings: [
-        { name: 'url', label: 'Webhook URL', type: 'string', default: 'https://webhook.site/test' },
+        { name: 'url', label: 'Webhook URL', type: 'string', default: '' },
         { name: 'secretHeader', label: 'Секретный токен', type: 'password' },
         { name: 'onlyOnCritical', label: 'Только при Critical/High', type: 'boolean', default: false }
       ],
@@ -1151,14 +1178,14 @@ export class NodeRegistry {
         const channelNode = this.getNode('notify.channel');
         if (channelNode) {
           return channelNode.run(inputs, {
-            enableTelegram: false,
-            enableWebhook: true,
-            webhookUrl: settings.url,
-            webhookSecret: settings.secretHeader,
+            ...settings,
+            channel: 'webhook',
+            webhookUrl: settings.url || settings.webhookUrl,
+            webhookSecret: settings.secretHeader || settings.webhookSecret,
             onlyOnCritical: settings.onlyOnCritical
           }, context);
         }
-        return { sent: false };
+        throw new Error('Блок notify.channel не найден в системе.');
       }
     } as any);
 

@@ -167,6 +167,22 @@
         inset 0 1px 0 0 rgba(255, 255, 255, 0.42) !important;
       animation: apple-pulse 2s ease-in-out infinite;
     }
+    .liquid-node.failed {
+      background: rgba(54, 16, 24, 0.82) !important;
+      border-color: rgba(255, 69, 58, 0.95) !important; /* Apple System Red #FF453A */
+      box-shadow: 
+        0 0 0 2.5px rgba(255, 69, 58, 0.8),
+        0 0 32px 6px rgba(255, 69, 58, 0.45),
+        inset 0 1px 0 0 rgba(255, 120, 120, 0.55) !important;
+      animation: apple-error-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    }
+
+    @keyframes apple-error-shake {
+      10%, 90% { transform: translate3d(-1px, 0, 0); }
+      20%, 80% { transform: translate3d(2px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+      40%, 60% { transform: translate3d(3px, 0, 0); }
+    }
 
     @keyframes apple-pulse {
       0%, 100% { box-shadow: 0 0 0 2px rgba(48, 209, 88, 0.35), 0 20px 45px -6px rgba(48, 209, 88, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.4); }
@@ -660,19 +676,37 @@
 
       <!-- Tab 1: Login Form -->
       <form id="auth-form-login" onsubmit="event.preventDefault(); submitEmailLogin();" class="space-y-3 text-xs" autocomplete="off">
+        <div style="position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; overflow: hidden;" aria-hidden="true" tabindex="-1">
+          <input type="text" tabindex="-1" autocomplete="off" />
+          <input type="password" tabindex="-1" autocomplete="new-password" />
+        </div>
         <div>
-          <label class="block text-gray-300 font-semibold mb-1">Email</label>
-          <input type="email" id="login-email" required placeholder="" autocomplete="off" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
+          <label class="block text-gray-300 font-semibold mb-1">Логин или Email</label>
+          <input type="text" id="login-email" required placeholder="test или ваш email" autocomplete="off"
+                 readonly onfocus="this.removeAttribute('readonly');"
+                 data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
+                 class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div>
           <label class="block text-gray-300 font-semibold mb-1">Пароль</label>
-          <input type="password" id="login-password" required placeholder="" autocomplete="current-password" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
+          <input type="password" id="login-password" required placeholder="••••••••" autocomplete="new-password"
+                 readonly onfocus="this.removeAttribute('readonly');"
+                 data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
+                 class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div id="login-error" class="hidden text-[11px] text-red-400 p-2 bg-red-950/40 border border-red-500/30 rounded-xl"></div>
         <button type="submit" class="liquid-btn-primary w-full py-2.5 rounded-xl text-white font-semibold flex items-center justify-center space-x-2 mt-2">
           <i class="fa-solid fa-right-to-bracket text-xs text-white/80"></i>
           <span>Войти в систему</span>
         </button>
+
+        <!-- Quick Demo Login for Hackathon Defense -->
+        <div class="pt-2 border-t border-white/10">
+          <button type="button" onclick="loginAsTestAccount()" class="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 hover:from-emerald-500/30 hover:to-cyan-500/30 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-semibold flex items-center justify-center space-x-2 transition cursor-pointer">
+            <i class="fa-solid fa-flask text-emerald-400"></i>
+            <span>Вход для защиты: <b>test / test</b> (Ключи из .env)</span>
+          </button>
+        </div>
       </form>
 
       <!-- Tab 2: Register Form -->
@@ -756,57 +790,167 @@
 
       <!-- Profile Sections Tabs -->
       <div class="liquid-segmented flex items-center space-x-1 text-xs">
-        <button onclick="switchProfileTab('integrations')" id="prof-tab-integrations" class="liquid-segmented-btn active flex-1 py-1.5 font-medium">Интеграции Git (GitHub / GitVerse)</button>
+        <button onclick="switchProfileTab('integrations')" id="prof-tab-integrations" class="liquid-segmented-btn active flex-1 py-1.5 font-medium">Ключи Vault (Git, AI, Каналы)</button>
         <button onclick="switchProfileTab('repos')" id="prof-tab-repos" class="liquid-segmented-btn flex-1 py-1.5 font-medium text-gray-400 hover:text-gray-200">Мои Репозитории</button>
         <button onclick="switchProfileTab('templates')" id="prof-tab-templates" class="liquid-segmented-btn flex-1 py-1.5 font-medium text-gray-400 hover:text-gray-200">Мои Шаблоны</button>
       </div>
 
-      <!-- Tab 1: Git Integrations Form -->
+      <!-- Tab 1: Git, AI, and Notification Integrations Form (AES-256-GCM Vault) -->
       <div id="prof-content-integrations" class="flex-1 overflow-y-auto space-y-4 text-xs pr-1">
-        <!-- GitHub Integration Box -->
+        <!-- Anti-autofill decoy trap -->
+        <div style="position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; overflow: hidden;" aria-hidden="true" tabindex="-1">
+          <input type="text" tabindex="-1" autocomplete="off" />
+          <input type="password" tabindex="-1" autocomplete="new-password" />
+        </div>
+
+        <!-- 1. GitHub & GitVerse -->
         <div class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-github text-lg text-white"></i>
-              <span class="font-bold text-white text-sm">GitHub</span>
+              <i class="fa-brands fa-github text-base text-white"></i>
+              <span class="font-bold text-white text-sm">GitHub & GitVerse (Приватные репозитории)</span>
             </div>
-            <div id="profile-gh-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Не подключён</div>
+            <div class="flex items-center space-x-1.5">
+              <span id="profile-gh-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">GitHub: Не настроен</span>
+              <span id="profile-gitverse-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">GitVerse: Не настроен</span>
+            </div>
           </div>
-          <p class="text-[11px] text-gray-400">Автоматически предоставляет доступ к вашим приватным репозиториям GitHub для запуска аудита в один клик без ручного ввода ключей.</p>
           
-          <div class="space-y-1.5">
-            <label class="block text-gray-300 font-semibold">GitHub Personal Access Token (PAT):</label>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">GitHub Personal Access Token (PAT):</label>
+              <input type="password" id="prof-gh-token" placeholder="ghp_..." autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">GitVerse токен доступа (PAT):</label>
+              <input type="password" id="prof-gitverse-token" placeholder="Токен доступа GitVerse" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
+            </div>
+          </div>
+          <div>
+            <label class="block text-gray-300 font-semibold mb-1">Имя пользователя GitVerse (логин):</label>
+            <input type="text" id="prof-gitverse-user" placeholder="username на gitverse.ru" autocomplete="one-time-code"
+                   readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                   class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+          </div>
+        </div>
+
+        <!-- 2. Сбер GigaChat API -->
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+          <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <input type="password" id="prof-gh-token" placeholder="ghp_..." class="flex-1 bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
-              <button onclick="saveGithubTokenOnly()" class="liquid-btn-primary px-3.5 py-2 font-medium text-white shrink-0">Сохранить</button>
+              <i class="fa-solid fa-wand-magic-sparkles text-purple-400 text-sm"></i>
+              <span class="font-bold text-white text-sm">Сбер GigaChat API (AI-Анализ & Патчи)</span>
+            </div>
+            <span id="profile-gigachat-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Не настроен</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="md:col-span-2">
+              <label class="block text-gray-300 font-semibold mb-1">Авторизационные данные (Client ID:Secret Base64):</label>
+              <input type="password" id="prof-gigachat-creds" placeholder="Base64 ключ из developers.sber.ru" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Область (Scope):</label>
+              <select id="prof-gigachat-scope" class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+                <option value="GIGACHAT_API_PERS">GIGACHAT_API_PERS (Физлица)</option>
+                <option value="GIGACHAT_API_CORP">GIGACHAT_API_CORP (Корпоративный)</option>
+              </select>
             </div>
           </div>
         </div>
 
-        <!-- GitVerse (Сбер) Integration Box -->
+        <!-- 3. Telegram -->
         <div class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <div class="w-5 h-5 rounded-md bg-gradient-to-tr from-green-600 to-emerald-400 flex items-center justify-center text-white text-xs font-bold">G</div>
-              <span class="font-bold text-white text-sm">GitVerse (Сбер)</span>
+              <i class="fa-brands fa-telegram text-sky-400 text-base"></i>
+              <span class="font-bold text-white text-sm">Telegram (Оповещения & Сводки)</span>
             </div>
-            <div id="profile-gitverse-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Не подключён</div>
+            <span id="profile-tg-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Не настроен</span>
           </div>
-          <p class="text-[11px] text-gray-400">Ключ доступа к репозиториям на российской платформе <code class="text-cyan-300">gitverse.ru</code> для аудита корпоративных проектов.</p>
-          
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="block text-gray-300 font-semibold mb-1">Имя пользователя GitVerse</label>
-              <input type="text" id="prof-gitverse-user" placeholder="username" class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+              <label class="block text-gray-300 font-semibold mb-1">Токен Telegram бота:</label>
+              <input type="password" id="prof-tg-token" placeholder="123456789:ABCdef..." autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
             </div>
             <div>
-              <label class="block text-gray-300 font-semibold mb-1">GitVerse токен (PAT)</label>
-              <input type="password" id="prof-gitverse-token" placeholder="Токен доступа GitVerse" class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
+              <label class="block text-gray-300 font-semibold mb-1">Chat ID / Канал:</label>
+              <input type="text" id="prof-tg-chat" placeholder="ID чата (например: 123456789)" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
             </div>
           </div>
-          <div class="flex justify-end">
-            <button onclick="saveGitverseTokens()" class="liquid-btn-primary px-4 py-2 font-medium text-white">Сохранить GitVerse</button>
+        </div>
+
+        <!-- 4. Яндекс Почта -->
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-envelope text-red-400 text-sm"></i>
+              <span class="font-bold text-white text-sm">Яндекс Почта (HTML-отчёты SMTP SSL:465)</span>
+            </div>
+            <span id="profile-yandex-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Не настроен</span>
           </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Email / Логин Яндекса:</label>
+              <input type="text" id="prof-yandex-user" placeholder="my-bot@yandex.ru" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Пароль приложения:</label>
+              <input type="password" id="prof-yandex-pass" placeholder="Пароль приложения из Яндекс ID" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Получатель отчёта:</label>
+              <input type="text" id="prof-yandex-to" placeholder="ciso@company.ru" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Webhook -->
+        <div class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-satellite-dish text-cyan-400 text-sm"></i>
+              <span class="font-bold text-white text-sm">Исходящий Webhook (SIEM / CI интеграция)</span>
+            </div>
+            <span id="profile-webhook-status-badge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Не настроен</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">URL приёмника:</label>
+              <input type="text" id="prof-webhook-url" placeholder="https://webhook.site/..." autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Секрет (X-Security-Token):</label>
+              <input type="password" id="prof-webhook-secret" placeholder="Секретный ключ подписи" autocomplete="one-time-code"
+                     readonly onfocus="this.removeAttribute('readonly');" data-lpignore="true"
+                     class="w-full bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400">
+            </div>
+          </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="pt-2">
+          <button onclick="saveAllVaultIntegrations()" class="liquid-btn-primary w-full py-3 rounded-2xl font-bold text-white flex items-center justify-center space-x-2 shadow-xl hover:scale-[1.01] transition cursor-pointer">
+            <i class="fa-solid fa-lock text-cyan-300 text-sm"></i>
+            <span>Сохранить все ключи в зашифрованный Vault (AES-256)</span>
+          </button>
         </div>
       </div>
 
@@ -1402,6 +1546,7 @@
     let nodeStatuses = {};
     let executionOutputs = {};
     let executionInputs = {};
+    let executionErrors = {};
     let undoStack = [];
     let selectedNodeId = null;
     let selectedEdgeId = null;
@@ -2720,13 +2865,26 @@
       document.getElementById('inspector-actions').classList.remove('hidden');
 
       const form = document.getElementById('inspector-settings-form');
+      const err = executionErrors[node.id];
+      const errorHtml = err ? `
+        <div class="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/50 text-red-200 text-xs space-y-1.5 shadow-lg">
+          <div class="flex items-center space-x-2 text-red-300 font-bold">
+            <i class="fa-solid fa-triangle-exclamation text-red-400"></i>
+            <span>Сбой выполнения блока</span>
+          </div>
+          <p class="text-[11px] text-red-200/90 leading-relaxed font-mono break-words">${escapeHtml(err)}</p>
+        </div>
+      ` : '';
+
       form.innerHTML = `
+        ${errorHtml}
         <div class="space-y-1.5">
           <label class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">Название блока</label>
           <input type="text" value="${escapeHtml(node.name || def?.title || '')}"
                  oninput="updateNodeName('${node.id}', this.value)"
-                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                 data-lpignore="true" data-form-type="other" name="unc_name_${node.id}"
+                 readonly onfocus="this.removeAttribute('readonly');"
+                 autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
+                 data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                  class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium">
         </div>
       `;
@@ -2751,7 +2909,6 @@
           const val = node.settings[s.name] !== undefined ? node.settings[s.name] : (s.default !== undefined ? s.default : '');
           const row = document.createElement('div');
           row.className = 'space-y-1';
-          const fieldName = `unc_${node.id}_${s.name}`;
 
           let inputHtml = '';
           if (s.type === 'select') {
@@ -2762,7 +2919,7 @@
               ? `updateNodeSetting('${node.id}', '${s.name}', this.value); onChannelTypeChanged('${node.id}', this.value);`
               : `updateNodeSetting('${node.id}', '${s.name}', this.value)`;
             inputHtml = `
-              <select name="${fieldName}" onchange="${onchange}"
+              <select onchange="${onchange}"
                       class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium cursor-pointer">
                 ${opts}
               </select>
@@ -2771,7 +2928,7 @@
             const isChecked = Boolean(val);
             inputHtml = `
               <label class="flex items-center space-x-2.5 p-2 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition cursor-pointer">
-                <input type="checkbox" ${isChecked ? 'checked' : ''} name="${fieldName}"
+                <input type="checkbox" ${isChecked ? 'checked' : ''}
                        onchange="updateNodeSetting('${node.id}', '${s.name}', this.checked)"
                        class="rounded w-4 h-4 text-blue-500 focus:ring-0 bg-black/40 border-white/20">
                 <span class="text-xs text-gray-200 font-medium select-none">${s.label}</span>
@@ -2781,10 +2938,11 @@
             const fieldId = `field_${node.id}_${s.name}`;
             inputHtml = `
               <div class="relative">
-                <input id="${fieldId}" name="${fieldName}" type="password" value="${escapeHtml(String(val))}"
+                <input id="${fieldId}" type="password" value="${escapeHtml(String(val))}"
                        oninput="updateNodeSetting('${node.id}', '${s.name}', this.value)"
-                       autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
-                       data-lpignore="true" data-form-type="other"
+                       readonly onfocus="this.removeAttribute('readonly');"
+                       autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
+                       data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                        class="w-full bg-black/30 text-xs rounded-xl pl-3 pr-9 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-mono">
                 <button type="button" onclick="togglePasswordVisibility('${fieldId}', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1 rounded transition" title="Показать/скрыть">
                   <i class="fa-solid fa-eye text-xs"></i>
@@ -2793,18 +2951,20 @@
             `;
           } else if (s.type === 'number') {
             inputHtml = `
-              <input type="number" step="any" value="${val}" name="${fieldName}"
+              <input type="number" step="any" value="${val}"
                      oninput="updateNodeSetting('${node.id}', '${s.name}', Number(this.value))"
-                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                     data-lpignore="true" data-form-type="other"
+                     readonly onfocus="this.removeAttribute('readonly');"
+                     autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
+                     data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                      class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium">
             `;
           } else {
             inputHtml = `
-              <input type="text" value="${escapeHtml(String(val))}" name="${fieldName}"
+              <input type="text" value="${escapeHtml(String(val))}"
                      oninput="updateNodeSetting('${node.id}', '${s.name}', this.value)"
-                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                     data-lpignore="true" data-form-type="other"
+                     readonly onfocus="this.removeAttribute('readonly');"
+                     autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
+                     data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                      class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium">
             `;
           }
@@ -3559,7 +3719,12 @@
       } else if (type === 'node-failed' || type === 'node:error') {
         if (nodeId) {
           nodeStatuses[nodeId] = 'failed';
+          const errMsg = ev.error || ev.data?.error || 'Ошибка выполнения блока';
+          executionErrors[nodeId] = errMsg;
           updateNodeCardVisual(nodeId, 'failed');
+          const nodeName = currentWorkflow?.nodes?.find(n => n.id === nodeId)?.name || nodeId;
+          showBanner(`🚨 Ошибка в блоке «${nodeName}»: ${errMsg}`);
+          if (selectedNodeId === nodeId) selectNode(nodeId);
         }
       } else if (type === 'workflow-completed' || type === 'workflow:complete' || type === 'workflow-failed') {
         setWorkflowExecutionFinished(ev.data || ev.result);
@@ -3567,9 +3732,14 @@
     }
 
     function setWorkflowExecutionFinished(result) {
+      if (result && result.errors) {
+        Object.assign(executionErrors, result.errors);
+      }
+      if (result && result.nodeStatuses) {
+        Object.assign(nodeStatuses, result.nodeStatuses);
+      }
       if (result && result.nodeOutputs) {
         Object.entries(result.nodeOutputs).forEach(([nId, out]) => {
-          nodeStatuses[nId] = result.nodeStatuses?.[nId] || 'completed';
           executionOutputs[nId] = out;
         });
       }
@@ -3584,8 +3754,14 @@
 
       const runStatusEl = document.getElementById('workflow-run-status');
       if (runStatusEl) {
-        runStatusEl.innerText = 'Аудит завершён';
-        runStatusEl.className = 'ml-1 text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
+        const hasFailures = Object.values(nodeStatuses).includes('failed') || (result && result.success === false);
+        if (hasFailures) {
+          runStatusEl.innerText = 'Сбой выполнения';
+          runStatusEl.className = 'ml-1 text-[10px] px-2.5 py-0.5 rounded-full bg-red-500/25 text-red-300 border border-red-500/40 font-medium';
+        } else {
+          runStatusEl.innerText = 'Аудит завершён';
+          runStatusEl.className = 'ml-1 text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
+        }
       }
 
       const topRunBtn = document.getElementById('run-workflow-btn');
@@ -3646,8 +3822,13 @@
 
       if (status === 'running') {
         card.classList.add('running');
+        card.classList.remove('failed');
+      } else if (status === 'failed') {
+        card.classList.add('failed');
+        card.classList.remove('running');
       } else {
         card.classList.remove('running');
+        card.classList.remove('failed');
       }
 
       renderNodeCards();
@@ -3676,6 +3857,7 @@
       nodeStatuses = {};
       executionOutputs = {};
       executionInputs = {};
+      executionErrors = {};
       renderNodeCards();
       renderConnections();
       showBanner('Запуск комплексного аудита безопасности uncflow...', true);
@@ -3725,15 +3907,25 @@
           body: JSON.stringify({ node, inputs: {} })
         });
         const data = await res.json();
-        nodeStatuses[nodeId] = 'completed';
-        executionOutputs[nodeId] = data.output;
-        updateNodeCardVisual(nodeId, 'completed', data.output);
-        showBanner(`Блок ${node.name} завершён: получено данных`);
-        setTimeout(hideBanner, 2000);
+        if (data.success === false || data.error) {
+          nodeStatuses[nodeId] = 'failed';
+          executionErrors[nodeId] = data.error || 'Сбой выполнения';
+          updateNodeCardVisual(nodeId, 'failed');
+          showBanner('Ошибка выполнения блока: ' + (data.error || 'Сбой'));
+          selectNode(nodeId);
+        } else {
+          nodeStatuses[nodeId] = 'completed';
+          executionOutputs[nodeId] = data.output;
+          updateNodeCardVisual(nodeId, 'completed', data.output);
+          showBanner(`Блок ${node.name} завершён успешно`);
+          setTimeout(hideBanner, 2000);
+        }
       } catch (err) {
         nodeStatuses[nodeId] = 'failed';
+        executionErrors[nodeId] = err.message;
         updateNodeCardVisual(nodeId, 'failed');
         showBanner('Ошибка выполнения блока: ' + err.message);
+        selectNode(nodeId);
       }
     }
 
@@ -4609,31 +4801,177 @@
       document.getElementById('profile-modal-email').innerText = currentUser.email || '';
       document.getElementById('profile-modal-avatar').src = currentUser.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.name || currentUser.email)}`;
 
-      // GitHub status
+      // 1. GitHub status
       const ghBadge = document.getElementById('profile-gh-status-badge');
-      if (currentUser.hasGithubToken || currentUser.githubToken || currentUser.githubUsername) {
-        ghBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
-        ghBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>Подключён ${currentUser.githubUsername ? `(@${currentUser.githubUsername})` : ''}`;
-      } else {
-        ghBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
-        ghBadge.innerText = 'Не подключён';
+      if (ghBadge) {
+        if (currentUser.hasGithubToken || currentUser.githubToken || currentUser.githubUsername) {
+          ghBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
+          ghBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>GitHub: Подключён ${currentUser.githubUsername ? `(@${currentUser.githubUsername})` : ''}`;
+        } else {
+          ghBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
+          ghBadge.innerText = 'GitHub: Не настроен';
+        }
       }
 
-      // GitVerse status
+      // 2. GitVerse status
       const gvBadge = document.getElementById('profile-gitverse-status-badge');
-      if (currentUser.hasGitverseToken || currentUser.gitverseToken || currentUser.gitverseUsername) {
-        gvBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
-        gvBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>Подключён ${currentUser.gitverseUsername ? `(@${currentUser.gitverseUsername})` : ''}`;
-      } else {
-        gvBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
-        gvBadge.innerText = 'Не подключён';
+      if (gvBadge) {
+        if (currentUser.hasGitverseToken || currentUser.gitverseToken || currentUser.gitverseUsername) {
+          gvBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
+          gvBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>GitVerse: Подключён ${currentUser.gitverseUsername ? `(@${currentUser.gitverseUsername})` : ''}`;
+        } else {
+          gvBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
+          gvBadge.innerText = 'GitVerse: Не настроен';
+        }
       }
 
-      document.getElementById('prof-gitverse-user').value = currentUser.gitverseUsername || '';
-      document.getElementById('prof-gh-token').value = '';
-      document.getElementById('prof-gitverse-token').value = '';
+      // 3. GigaChat status
+      const gigaBadge = document.getElementById('profile-gigachat-status-badge');
+      if (gigaBadge) {
+        if (currentUser.hasGigachatCredentials) {
+          gigaBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-medium';
+          gigaBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>Подключён (${currentUser.gigachatCredentialsMasked || 'Vault'})`;
+        } else {
+          gigaBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
+          gigaBadge.innerText = 'Не настроен';
+        }
+      }
+
+      // 4. Telegram status
+      const tgBadge = document.getElementById('profile-tg-status-badge');
+      if (tgBadge) {
+        if (currentUser.hasTelegramBotToken) {
+          tgBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-medium';
+          tgBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>Подключён (${currentUser.telegramChatId || 'Бот'})`;
+        } else {
+          tgBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
+          tgBadge.innerText = 'Не настроен';
+        }
+      }
+
+      // 5. Яндекс Почта status
+      const yBadge = document.getElementById('profile-yandex-status-badge');
+      if (yBadge) {
+        if (currentUser.hasYandexMailPassword || currentUser.yandexMailUser) {
+          yBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium';
+          yBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>Подключён (${currentUser.yandexMailUser || 'SMTP'})`;
+        } else {
+          yBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
+          yBadge.innerText = 'Не настроен';
+        }
+      }
+
+      // 6. Webhook status
+      const whBadge = document.getElementById('profile-webhook-status-badge');
+      if (whBadge) {
+        if (currentUser.webhookUrl) {
+          whBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium';
+          whBadge.innerHTML = `<i class="fa-solid fa-check mr-1"></i>Подключён`;
+        } else {
+          whBadge.className = 'text-[10px] px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700';
+          whBadge.innerText = 'Не настроен';
+        }
+      }
+
+      // Populate input values
+      if (document.getElementById('prof-gitverse-user')) document.getElementById('prof-gitverse-user').value = currentUser.gitverseUsername || '';
+      if (document.getElementById('prof-gigachat-scope')) document.getElementById('prof-gigachat-scope').value = currentUser.gigachatScope || 'GIGACHAT_API_PERS';
+      if (document.getElementById('prof-tg-chat')) document.getElementById('prof-tg-chat').value = currentUser.telegramChatId || '';
+      if (document.getElementById('prof-yandex-user')) document.getElementById('prof-yandex-user').value = currentUser.yandexMailUser || '';
+      if (document.getElementById('prof-yandex-to')) document.getElementById('prof-yandex-to').value = currentUser.yandexMailTo || '';
+      if (document.getElementById('prof-webhook-url')) document.getElementById('prof-webhook-url').value = currentUser.webhookUrl || '';
+
+      // Set masked placeholders and clear values for password fields
+      const ghEl = document.getElementById('prof-gh-token');
+      if (ghEl) {
+        ghEl.value = '';
+        ghEl.placeholder = currentUser.githubTokenMasked || 'ghp_...';
+      }
+      const gvEl = document.getElementById('prof-gitverse-token');
+      if (gvEl) {
+        gvEl.value = '';
+        gvEl.placeholder = currentUser.gitverseTokenMasked || 'Токен доступа GitVerse';
+      }
+      const gigaEl = document.getElementById('prof-gigachat-creds');
+      if (gigaEl) {
+        gigaEl.value = '';
+        gigaEl.placeholder = currentUser.gigachatCredentialsMasked || 'Base64 ключ из developers.sber.ru';
+      }
+      const tgEl = document.getElementById('prof-tg-token');
+      if (tgEl) {
+        tgEl.value = '';
+        tgEl.placeholder = currentUser.telegramBotTokenMasked || '123456789:ABCdef...';
+      }
+      const ypassEl = document.getElementById('prof-yandex-pass');
+      if (ypassEl) {
+        ypassEl.value = '';
+        ypassEl.placeholder = currentUser.yandexMailPasswordMasked || 'Пароль приложения из Яндекс ID';
+      }
+      const whSecEl = document.getElementById('prof-webhook-secret');
+      if (whSecEl) {
+        whSecEl.value = '';
+        whSecEl.placeholder = currentUser.webhookSecretMasked || 'Секретный ключ подписи';
+      }
 
       switchProfileTab(tab);
+    }
+
+    async function saveAllVaultIntegrations() {
+      const updates = {};
+      const ghToken = document.getElementById('prof-gh-token')?.value?.trim();
+      const gvToken = document.getElementById('prof-gitverse-token')?.value?.trim();
+      const gvUser = document.getElementById('prof-gitverse-user')?.value?.trim();
+      const gigaCreds = document.getElementById('prof-gigachat-creds')?.value?.trim();
+      const gigaScope = document.getElementById('prof-gigachat-scope')?.value?.trim();
+      const tgToken = document.getElementById('prof-tg-token')?.value?.trim();
+      const tgChat = document.getElementById('prof-tg-chat')?.value?.trim();
+      const yUser = document.getElementById('prof-yandex-user')?.value?.trim();
+      const yPass = document.getElementById('prof-yandex-pass')?.value?.trim();
+      const yTo = document.getElementById('prof-yandex-to')?.value?.trim();
+      const whUrl = document.getElementById('prof-webhook-url')?.value?.trim();
+      const whSecret = document.getElementById('prof-webhook-secret')?.value?.trim();
+
+      if (ghToken) updates.githubToken = ghToken;
+      if (gvToken) updates.gitverseToken = gvToken;
+      if (gvUser !== undefined) updates.gitverseUsername = gvUser;
+      if (gigaCreds) updates.gigachatCredentials = gigaCreds;
+      if (gigaScope) updates.gigachatScope = gigaScope;
+      if (tgToken) updates.telegramBotToken = tgToken;
+      if (tgChat !== undefined) updates.telegramChatId = tgChat;
+      if (yUser !== undefined) updates.yandexMailUser = yUser;
+      if (yPass) updates.yandexMailPassword = yPass;
+      if (yTo !== undefined) updates.yandexMailTo = yTo;
+      if (whUrl !== undefined) updates.webhookUrl = whUrl;
+      if (whSecret) updates.webhookSecret = whSecret;
+
+      try {
+        const res = await fetch('/api/auth/profile', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentAuthToken}`
+          },
+          body: JSON.stringify(updates)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          currentUser = data.user;
+          renderUserHeader();
+          openProfileModal('integrations');
+          showBanner('Все ключи успешно зашифрованы и сохранены в Vault (AES-256)!');
+          setTimeout(hideBanner, 2500);
+        } else {
+          showBanner('Ошибка сохранения ключей: ' + (data.error || 'Неизвестно'));
+        }
+      } catch (err) {
+        showBanner('Ошибка соединения: ' + err.message);
+      }
+    }
+
+    async function loginAsTestAccount() {
+      document.getElementById('login-email').value = 'test';
+      document.getElementById('login-password').value = 'test';
+      await submitEmailLogin();
     }
 
     function switchProfileTab(tab) {
