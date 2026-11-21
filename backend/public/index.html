@@ -3132,9 +3132,6 @@
         showBanner('Ошибка связи: ' + err.message);
       }
     }
-      showBanner('Запуск сценария по расписанию...', true);
-      await executeCurrentWorkflow();
-    }
 
     function copyWebhookUrl(nodeId) {
       const input = document.getElementById(`webhook-copy-url-${nodeId}`);

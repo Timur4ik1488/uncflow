@@ -82,7 +82,10 @@ const server = http.createServer(async (req, res) => {
           '.svg': 'image/svg+xml',
           '.png': 'image/png'
         };
-        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+        res.writeHead(200, {
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        });
         if (req.method === 'HEAD') {
           res.end();
           return;
