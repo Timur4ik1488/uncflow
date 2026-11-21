@@ -8,6 +8,8 @@
     "start": "node --experimental-strip-types backend/src/server.ts",
     "dev": "node --experimental-strip-types backend/src/server.ts",
     "test": "node --experimental-strip-types backend/test/ground-truth.test.ts",
+    "test:fixtures": "node --experimental-strip-types backend/test/fixtures.test.ts",
+    "eval": "node --experimental-strip-types backend/scripts/eval-scanners.ts",
     "test:workflow": "node --experimental-strip-types backend/test/workflow-engine.test.ts",
     "test:db": "node --experimental-strip-types backend/test/postgres-storage.test.ts"
   },

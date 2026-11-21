@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "tsx test/ground-truth.test.ts",
+    "test:fixtures": "node --experimental-strip-types test/fixtures.test.ts",
+    "eval": "node --experimental-strip-types scripts/eval-scanners.ts",
     "test:db": "tsx test/postgres-storage.test.ts"
   },
   "dependencies": {

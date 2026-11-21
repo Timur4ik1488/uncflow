@@ -28,8 +28,8 @@ export function isSafeOrPlaceholder(val: string): boolean {
   const trimmed = val.trim();
   if (trimmed.length === 0) return true;
 
-  // Pure environment variable references like ${VAR} or ${VAR:}
-  if (/^\$\{[A-Za-z0-9_.-]+(:)?\}$/.test(trimmed)) return true;
+  // Pure environment variable references like ${VAR} or \${VAR} or ${VAR:}
+  if (/^\\?\$\{[A-Za-z0-9_.-]+(:)?\}$/.test(trimmed)) return true;
 
   const lower = trimmed.toLowerCase();
   const safeWords = new Set([

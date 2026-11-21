@@ -62,8 +62,7 @@ export function maskSensitiveText(text?: string): string {
     .replace(/(Basic\s+)[A-Za-z0-9+/=]{8,}/gi, '$1***')
     .replace(/([A-Fa-f0-9]{32,64})/g, (match) => match.substring(0, 4) + '***' + match.substring(match.length - 4))
     .replace(/(ghp_[A-Za-z0-9]{30,})/gi, 'ghp_***')
-    .replace(/(cg26_[A-Za-z0-9_]{10,})/gi, 'cg26_***')
-    .replace(/(fh26_[A-Za-z0-9_]{10,})/gi, 'fh26_***');
+    .replace(/([a-zA-Z0-9_-]{4,8}_[A-Za-z0-9_]{10,})/gi, (m) => m.substring(0, 4) + '***');
 }
 
 /**
@@ -207,7 +206,7 @@ export function validateSubmissionReport(report: any, repoRoot?: string): Valida
 
     // 4. Raw secret leak check
     const textToCheck = `${f.description || ''} ${f.remediation || ''}`;
-    if (/(?:cg26_[a-zA-Z0-9]{15,}|fh26_[a-zA-Z0-9]{15,}|ghp_[a-zA-Z0-9]{20,})/.test(textToCheck)) {
+    if (/(?:[a-zA-Z0-9_-]{4,8}_[a-zA-Z0-9]{12,}|ghp_[a-zA-Z0-9]{20,})/.test(textToCheck)) {
       errors.push(`${prefix}: обнаружена утечка не замаскированного секрета в описании/рекомендации`);
     }
   }

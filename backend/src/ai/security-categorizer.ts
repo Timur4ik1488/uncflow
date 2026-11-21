@@ -220,8 +220,8 @@ export class SmartSecurityCategorizer {
       cvssScore: 9.8,
       attackVector: 'Злоумышленник передает кавычки или SQL-пейлоад в HTTP-параметр, что изменяет структуру SQL-запроса в JdbcTemplate и позволяет читать/модифицировать всю БД.',
       businessImpact: 'Полная компрометация конфиденциальности клиентских данных, утечка учетных записей и нарушение целостности БД.',
-      remediationPatch: `// Замените строковую конкатенацию на позиционный плейсхолдер:\njdbcTemplate.query("SELECT * FROM repair_tickets WHERE id = ?", arrayOf(ticketId), rowMapper)`,
-      verificationStep: `curl -i "http://localhost:8080/api/repairs?id=1'+OR+'1'='1" -> должен возвращать 400 Bad Request или корректно экранироваться.`
+      remediationPatch: `// Замените строковую конкатенацию на позиционный плейсхолдер:\njdbcTemplate.query("SELECT * FROM items WHERE id = ?", arrayOf(itemId), rowMapper)`,
+      verificationStep: `curl -i "http://localhost:8080/api/items?id=1'+OR+'1'='1" -> должен возвращать 400 Bad Request или корректно экранироваться.`
     },
     'route-authorization': {
       cwe: 'CWE-306: Missing Authentication for Critical Function',
@@ -230,7 +230,7 @@ export class SmartSecurityCategorizer {
       attackVector: 'Неаутентифицированный внешний пользователь отправляет прямой запрос на скрытый/служебный эндпоинт, ошибочно открытый через permitAll().',
       businessImpact: 'Несанкционированное выполнение административных операций и утечка служебной телеметрии сервиса.',
       remediationPatch: `// В SecurityFilterChain замените permitAll() на проверку роли:\n.requestMatchers("/api/admin/**").hasRole("ADMIN")\n.anyRequest().authenticated()`,
-      verificationStep: `curl -i http://localhost:8080/api/internal/repair-status -> ожидается HTTP 401 Unauthorized.`
+      verificationStep: `curl -i http://localhost:8080/api/internal/service-status -> ожидается HTTP 401 Unauthorized.`
     },
     'tls-verification': {
       cwe: 'CWE-295: Improper Certificate Validation',
@@ -247,8 +247,8 @@ export class SmartSecurityCategorizer {
       cvssScore: 7.5,
       attackVector: 'Авторизованный пользователь перебирает чужие идентификаторы заявок (id=101, id=102) и получает доступ к чужим персональным данным.',
       businessImpact: 'Массовая утечка персональных данных клиентов (GDPR/152-ФЗ инцидент).',
-      remediationPatch: `// Проверяйте принадлежность объекта текущему пользователю:\nval currentCustomer = SecurityContextHolder.getContext().authentication.name\nval ticket = repo.findByIdAndCustomerId(id, currentCustomer) ?: throw AccessDeniedException("Forbidden")`,
-      verificationStep: `Запросить заявку чужого пользователя под токеном обычного клиента -> ожидается HTTP 403 Forbidden.`
+      remediationPatch: `// Проверяйте принадлежность объекта текущему пользователю:\nval currentUser = SecurityContextHolder.getContext().authentication.name\nval entity = repo.findByIdAndOwnerId(id, currentUser) ?: throw AccessDeniedException("Forbidden")`,
+      verificationStep: `Запросить запись чужого пользователя под токеном обычного клиента -> ожидается HTTP 403 Forbidden.`
     },
     'credentialed-cors': {
       cwe: 'CWE-942: Permissive Cross-Origin Resource Sharing with Credentials',
@@ -256,8 +256,8 @@ export class SmartSecurityCategorizer {
       cvssScore: 6.5,
       attackVector: 'Вредоносный сайт инициирует кросс-доменные запросы с куками жертвы, считывая конфиденциальные ответы API.',
       businessImpact: 'Кража сессий и персональных данных авторизованных пользователей через браузер.',
-      remediationPatch: `// Замените '*' на строгий список доверенных доменов:\nconfig.allowedOriginPatterns = listOf("https://app.repairdesk.example.com")\nconfig.allowCredentials = true`,
-      verificationStep: `curl -H "Origin: https://evil.com" -I http://localhost:8080/api/repairs -> заголовок Access-Control-Allow-Origin не должен содержать https://evil.com.`
+      remediationPatch: `// Замените '*' на строгий список доверенных доменов:\nconfig.allowedOriginPatterns = listOf("https://app.example.com")\nconfig.allowCredentials = true`,
+      verificationStep: `curl -H "Origin: https://evil.com" -I http://localhost:8080/api/items -> заголовок Access-Control-Allow-Origin не должен содержать https://evil.com.`
     },
     'secret-fallback': {
       cwe: 'CWE-798: Use of Hard-coded Credentials (Default Fallback)',
@@ -265,16 +265,16 @@ export class SmartSecurityCategorizer {
       cvssScore: 3.3,
       attackVector: 'Если системный администратор не задал переменную окружения, приложение откатывается на открытый ключ в исходном коде.',
       businessImpact: 'Использование скомпрометированного секрета всеми тестовыми и локальными стендами.',
-      remediationPatch: `val apiKey = System.getenv("DEPOT_STATUS_API_KEY") ?: throw IllegalStateException("Критическая ошибка: DEPOT_STATUS_API_KEY обязателен!")`,
-      verificationStep: `Запустить сервис без переменной DEPOT_STATUS_API_KEY -> сервис должен упасть на старте, а не работать на хардкоде.`
+      remediationPatch: `val apiKey = System.getenv("API_ACCESS_KEY") ?: throw IllegalStateException("Критическая ошибка: API_ACCESS_KEY обязателен!")`,
+      verificationStep: `Запустить сервис без переменной API_ACCESS_KEY -> сервис должен упасть на старте, а не работать на хардкоде.`
     },
     'password': {
       cwe: 'CWE-259: Use of Hard-coded Password',
       owasp: 'A07:2021-Identification and Authentication Failures',
       cvssScore: 7.5,
       attackVector: 'Чтение пароля учётной записи из публичного или корпоративного git-репозитория с последующим прямым входом в базу/сервис.',
-      businessImpact: 'Несанкционированный доступ к базе запчастей под правами сервисного аккаунта.',
-      remediationPatch: `// Передавайте через Secret Management (HashiCorp Vault / K8s Secret):\nval dbPassword = System.getenv("PARTS_DB_PASSWORD")`,
+      businessImpact: 'Несанкционированный доступ к базе данных под правами сервисного аккаунта.',
+      remediationPatch: `// Передавайте через Secret Management (HashiCorp Vault / K8s Secret):\nval dbPassword = System.getenv("APP_DB_PASSWORD")`,
       verificationStep: `Проверить git log и файлы проекта на отсутствие открытых строк паролей.`
     },
     'api-key': {
@@ -283,7 +283,7 @@ export class SmartSecurityCategorizer {
       cvssScore: 5.3,
       attackVector: 'Использование утекшего API-ключа для выполнения запросов от имени компании к внешним платным поставщикам.',
       businessImpact: 'Финансовые потери и исчерпание лимитов внешнего API.',
-      remediationPatch: `val quoteApiKey = System.getenv("QUOTE_SERVICE_KEY") ?: error("QUOTE_SERVICE_KEY is required")`,
+      remediationPatch: `val quoteApiKey = System.getenv("SERVICE_API_KEY") ?: error("SERVICE_API_KEY is required")`,
       verificationStep: `Убедиться, что API-ключ ротирован и старый отозван у провайдера.`
     },
     'recoverable-token': {
@@ -291,8 +291,8 @@ export class SmartSecurityCategorizer {
       owasp: 'A02:2021-Cryptographic Failures',
       cvssScore: 5.3,
       attackVector: 'Злоумышленник или декомпилятор восстанавливает токен простой конкатенацией строковых литералов в байткоде.',
-      businessImpact: 'Обход тривиальной обфускации и компрометация гарантийного API.',
-      remediationPatch: `val warrantyToken = System.getenv("WARRANTY_BEARER_TOKEN") ?: error("WARRANTY_BEARER_TOKEN required")`,
+      businessImpact: 'Обход тривиальной обфускации и компрометация защищённого API.',
+      remediationPatch: `val bearerToken = System.getenv("AUTH_BEARER_TOKEN") ?: error("AUTH_BEARER_TOKEN required")`,
       verificationStep: `Декомпилировать .class файл и проверить отсутствие фрагментов секретных строк.`
     },
     'configuration-token': {
@@ -300,8 +300,8 @@ export class SmartSecurityCategorizer {
       owasp: 'A05:2021-Security Misconfiguration',
       cvssScore: 7.5,
       attackVector: 'Извлечение сервисного Bearer-токена из application.yml при публикации артефакта или утечке исходников.',
-      businessImpact: 'Несанкционированный вызов защищённого обратного вызова (pickup callback).',
-      remediationPatch: `# В application.yml используйте ссылку на переменную:\npickup:\n  callback:\n    token: "\${PICKUP_CALLBACK_TOKEN}"`,
+      businessImpact: 'Несанкционированный вызов защищённого обратного вызова.',
+      remediationPatch: `# В application.yml используйте ссылку на переменную:\nintegration:\n  service:\n    token: "\${SERVICE_AUTH_TOKEN}"`,
       verificationStep: `Проверить сборку jar-архива: application.yml не должен содержать открытых токенов.`
     },
     'CVE-2022-42889': {
@@ -471,9 +471,9 @@ export class SmartSecurityCategorizer {
     if (this.gigachat.isAvailable()) {
       try {
         const prompt = `Ты CISO крупной финтех-компании.
-Составь краткое (3-4 предложения) официальное резюме аудита безопасности проекта Cyber Garden 2026.
+Составь краткое (3-4 предложения) официальное резюме аудита безопасности проекта.
 Всего находок: ${total} (CRITICAL: ${critical}, HIGH: ${high}, MEDIUM: ${medium}, LOW: ${low}).
-Среди ключевых проблем: SQL-инъекция в RepairLookupController, RCE Text4Shell в commons-text, открытый админ-роут в RepairSecurity, ослабленный TLS и хардкод паролей/секретов.
+Ключевые классы проблем: SQL-инъекции, уязвимые зависимости, открытые маршруты авторизации, ослабленный TLS и хардкод паролей/секретов.
 Напиши чёткий вердикт: релиз блокирован или нет, и какие 3 приоритетных шага должны сделать разработчики в первые 24 часа.`;
 
         const resp = await this.gigachat.chatWithSystem('Ты главный офицер безопасности (CISO). Пиши строго и по делу.', prompt, 'GigaChat-Pro');
@@ -488,16 +488,16 @@ export class SmartSecurityCategorizer {
 
     if (!cisoSummary) {
       cisoSummary = `Аудит выявил ${total} уязвимостей безопасности, включая ${critical} критических и ${high} высоких рисков. ` +
-        `Обнаружены критические уязвимости SQL-инъекции (CWE-89) и уязвимой зависимости commons-text (CVE-2022-42889 Text4Shell), допускающие полный захват сервера. ` +
+        `Обнаружены критические уязвимости SQL-инъекции и уязвимости зависимостей, допускающие компрометацию данных и инфраструктуры. ` +
         `Релиз приложения в текущем состоянии КАТЕГОРИЧЕСКИ ЗАПРЕЩЁН до устранения блокирующих дефектов. Приоритетом является параметризация SQL-запросов и обновление версий библиотек.`;
     }
 
     const topRecommendations = [
-      'Немедленно устранить SQL-инъекцию в RepairLookupController.kt (замена строковой интерполяции на подготовленные запросы)',
-      'Обновить уязвимую библиотеку commons-text до версии >= 1.10.0 для предотвращения удаленного выполнения кода (Text4Shell)',
-      'Закрыть открытый служебный маршрут в RepairSecurity.kt с помощью авторизации hasRole("ADMIN") или authenticated()',
-      'Отозвать и вынести все утекшие секреты и пароли из кодовой базы в хранилище HashiCorp Vault / K8s Secrets',
-      'Восстановить строгую валидацию TLS сертификатов в SupplierHttpsClient.kt'
+      'Немедленно устранить SQL-инъекции в контроллерах и сервисах (замена строковой интерполяции на подготовленные запросы)',
+      'Обновить уязвимые библиотеки до безопасных версий согласно рекомендациям безопасности',
+      'Закрыть открытые служебные маршруты с помощью строгой ролевой авторизации hasRole() или authenticated()',
+      'Отозвать и вынести все утекшие секреты и пароли из кодовой базы в защищённое хранилище секретов',
+      'Восстановить строгую валидацию TLS сертификатов во всех внешних HTTP-клиентах'
     ];
 
     return {
