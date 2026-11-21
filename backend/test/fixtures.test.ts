@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { SecretAnalyzer } from '../src/analyzers/secrets/index.ts';
 import { SastAnalyzer } from '../src/analyzers/sast/index.ts';
@@ -7,9 +8,11 @@ function runFixtureTests() {
   console.log('  TESTING SYNTHETIC FIXTURES (10 VULNERABILITY CLASSES + SAFE)');
   console.log('===============================================================\n');
 
-  const rootDir = process.cwd();
-  const vulnerableDir = path.join(rootDir, 'backend', 'test', 'fixtures', 'vulnerable');
-  const safeDir = path.join(rootDir, 'backend', 'test', 'fixtures', 'safe');
+  const baseDir = fs.existsSync(path.join(process.cwd(), 'test', 'fixtures'))
+    ? path.join(process.cwd(), 'test', 'fixtures')
+    : path.join(process.cwd(), 'backend', 'test', 'fixtures');
+  const vulnerableDir = path.join(baseDir, 'vulnerable');
+  const safeDir = path.join(baseDir, 'safe');
 
   // 1. Run analyzers on vulnerable fixtures
   const secretAnalyzer = new SecretAnalyzer({ ignorePaths: [] });

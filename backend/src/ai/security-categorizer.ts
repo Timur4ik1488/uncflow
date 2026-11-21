@@ -41,6 +41,7 @@ export class GigaChatClient {
   private tokenExpiresAt: number = 0;
   private isConfigured: boolean = false;
   private httpsAgent: https.Agent;
+  private tokenPromise: Promise<string | null> | null = null;
 
   private constructor() {
     this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
@@ -55,6 +56,8 @@ export class GigaChatClient {
   }
 
   public reloadConfig(customCredentials?: string, customScope?: string) {
+    const prevCreds = this.credentials;
+    const prevScope = this.scope;
     this.clientId = process.env.GIGACHAT_CLIENT_ID || process.env.client_id || '';
     this.clientSecret = process.env.GIGACHAT_CLIENT_SECRET || process.env.client_secret || '';
     this.credentials = customCredentials || process.env.GIGACHAT_CREDENTIALS || '';
@@ -62,6 +65,12 @@ export class GigaChatClient {
 
     if (!this.credentials && this.clientId && this.clientSecret) {
       this.credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
+    }
+
+    if (this.credentials !== prevCreds || this.scope !== prevScope) {
+      this.accessToken = null;
+      this.tokenExpiresAt = 0;
+      this.tokenPromise = null;
     }
 
     this.isConfigured = Boolean(this.credentials);
@@ -80,7 +89,16 @@ export class GigaChatClient {
     if (this.accessToken && Date.now() < this.tokenExpiresAt) {
       return this.accessToken;
     }
+    if (this.tokenPromise) {
+      return this.tokenPromise;
+    }
+    this.tokenPromise = this.fetchTokenInternal().finally(() => {
+      this.tokenPromise = null;
+    });
+    return this.tokenPromise;
+  }
 
+  private async fetchTokenInternal(): Promise<string | null> {
     return new Promise((resolve) => {
       const postData = `scope=${encodeURIComponent(this.scope)}`;
       const options: https.RequestOptions = {
@@ -137,11 +155,11 @@ export class GigaChatClient {
     });
   }
 
-  public async chat(requestData: any): Promise<any | null> {
+  public async chat(requestData: any, retryCount = 1): Promise<any | null> {
     const token = await this.getToken();
     if (!token) return null;
 
-    return new Promise((resolve) => {
+    const runChat = () => new Promise<any | null>((resolve) => {
       const postData = JSON.stringify(requestData);
       const url = new URL(`${this.baseUrl}/chat/completions`);
 
@@ -167,6 +185,9 @@ export class GigaChatClient {
           try {
             if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
               resolve(JSON.parse(raw));
+            } else if (res.statusCode === 429) {
+              console.warn(`[GigaChat] Лимит запросов (HTTP 429).`);
+              resolve({ rateLimited: true });
             } else {
               console.warn(`[GigaChat] Ошибка чата: HTTP ${res.statusCode} ${raw}`);
               resolve(null);
@@ -182,6 +203,16 @@ export class GigaChatClient {
       req.write(postData);
       req.end();
     });
+
+    const result = await runChat();
+    if (result && result.rateLimited) {
+      if (retryCount > 0) {
+        await new Promise(r => setTimeout(r, 1200));
+        return this.chat(requestData, retryCount - 1);
+      }
+      return null;
+    }
+    return result;
   }
 
   public async chatWithSystem(systemPrompt: string, userMessage: string, model: string = 'GigaChat-Pro'): Promise<string | null> {
@@ -334,13 +365,13 @@ export class SmartSecurityCategorizer {
       verificationStep: `Проверить версию commons-compress >= 1.26.0.`
     },
     'CVE-2021-37533': {
-      cwe: 'CWE-1333: Inefficient Regular Expression Complexity (ReDoS in commons-net)',
+      cwe: 'CWE-1333: Inefficient Regular Expression Complexity (ReDoS in network client)',
       owasp: 'A06:2021-Vulnerable and Outdated Components',
       cvssScore: 5.3,
       attackVector: 'Злонамеренный ответ FTP-сервера вызывает катастрофический бэктрекинг в регулярном выражении парсера.',
       businessImpact: 'Блокировка пула сетевых соединений при обращении к внешним хранилищам.',
-      remediationPatch: `// Обновите commons-net в build.gradle.kts:\nimplementation("commons-net:commons-net:3.9.0")`,
-      verificationStep: `Убедиться, что commons-net обновлен до версии 3.9.0.`
+      remediationPatch: `// Обновите сетевую библиотеку в build.gradle.kts до защищенной версии:\n// implementation("dependency-client:3.9.0")`,
+      verificationStep: `Убедиться, что сетевой компонент обновлен до безопасной версии.`
     },
     'CVE-2023-5072': {
       cwe: 'CWE-400: Denial of Service via JSON-Pointer in org.json',

@@ -13,6 +13,7 @@ import { db } from '../storage/db.ts';
 import { sendYandexMail, formatSecurityEmailHtml } from '../notifications/mailer.ts';
 import { sanitizeFindingForExport, validateSubmissionReport } from '../validators/submission-validator.ts';
 import { isPrivateOrLoopbackUrl } from '../validators/ssrf-validator.ts';
+import { exportToSarif } from '../exporters/sarif.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -271,6 +272,56 @@ export class NodeRegistry {
           throw new Error(`Указанный локальный каталог не найден: ${targetPath}. Проверьте правильность пути в настройках блока.`);
         }
         return { codePath: targetPath, repoUrl: targetPath, exists: true };
+      }
+    });
+
+    this.register({
+      type: 'source.archive',
+      title: 'ZIP Архив Проекта (source.zip)',
+      category: 'Sources',
+      icon: 'Archive',
+      color: '#10B981', // Emerald
+      description: 'Распаковка архива ZIP с исходным кодом проекта (с защитой от Zip Slip)',
+      inputs: [{ id: 'trigger', label: 'Вход', type: 'any' }],
+      outputs: [
+        { id: 'codePath', label: 'Путь к коду', type: 'codePath' },
+        { id: 'archivePath', label: 'Путь к архиву', type: 'string' }
+      ],
+      settings: [
+        { name: 'archivePath', label: 'Путь к архиву (.zip)', type: 'string', default: 'source.zip' },
+        { name: 'targetDir', label: 'Папка распаковки', type: 'string', default: '.cache/extracted_zip' }
+      ],
+      run: async (inputs, settings) => {
+        const rawArchivePath = (inputs.archivePath || settings.archivePath || 'source.zip').trim();
+        const archiveFile = path.resolve(process.cwd(), rawArchivePath);
+        if (!fs.existsSync(archiveFile)) {
+          throw new Error(`ZIP-архив не найден: ${rawArchivePath}`);
+        }
+
+        const outDir = path.resolve(process.cwd(), settings.targetDir || '.cache/extracted_zip');
+        if (!fs.existsSync(outDir)) {
+          fs.mkdirSync(outDir, { recursive: true });
+        }
+
+        // Strict Zip Slip security verification
+        try {
+          const { stdout: listOut } = await execFileAsync('unzip', ['-Z1', archiveFile]);
+          const entries = listOut.split('\n').map((l: string) => l.trim()).filter(Boolean);
+          for (const entry of entries) {
+            const dest = path.resolve(outDir, entry);
+            if (!dest.startsWith(outDir)) {
+              throw new Error(`Попытка Zip Slip обнаружена в архиве: запись '${entry}' выходит за пределы ${outDir}`);
+            }
+          }
+          await execFileAsync('unzip', ['-o', '-q', archiveFile, '-d', outDir]);
+        } catch (err: any) {
+          throw new Error(`Ошибка распаковки ZIP-архива: ${err.message}`);
+        }
+
+        return {
+          codePath: outDir,
+          archivePath: archiveFile
+        };
       }
     });
 
@@ -687,6 +738,82 @@ export class NodeRegistry {
       }
     });
 
+    this.register({
+      type: 'logic.diff',
+      title: 'Дифф Запусков (Diff)',
+      category: 'Logic',
+      icon: 'GitCompare',
+      color: '#10B981', // Emerald
+      description: 'Сравнение двух наборов находок: новые уязвимости, устранённые и оставшиеся',
+      inputs: [
+        { id: 'current', label: 'Текущие находки', type: 'findings' },
+        { id: 'baseline', label: 'Базовые находки', type: 'findings' }
+      ],
+      outputs: [
+        { id: 'newFindings', label: 'Новые уязвимости', type: 'findings' },
+        { id: 'resolvedFindings', label: 'Устранённые', type: 'findings' },
+        { id: 'persistingFindings', label: 'Оставшиеся', type: 'findings' },
+        { id: 'diffSummary', label: 'Сводка изменений', type: 'any' }
+      ],
+      settings: [
+        {
+          name: 'matchBy',
+          label: 'Критерий совпадения',
+          type: 'select',
+          default: 'class_path',
+          options: [
+            { label: 'Класс + Путь + Строка', value: 'class_path_line' },
+            { label: 'Класс + Путь (без привязки к строке)', value: 'class_path' }
+          ]
+        }
+      ],
+      run: async (inputs, settings) => {
+        const currentList: Finding[] = inputs.current || inputs.findings || inputs.allFindings || [];
+        const baselineList: Finding[] = inputs.baseline || inputs.previous || [];
+        const matchBy = settings.matchBy || 'class_path';
+
+        const getKey = (f: any) => {
+          const id = f.class || f.advisoryId || f.category;
+          const p = (f.path || '').replace(/\\/g, '/');
+          return matchBy === 'class_path_line' ? `${f.category}|${id}|${p}:${f.line || 0}` : `${f.category}|${id}|${p}`;
+        };
+
+        const baselineMap = new Map<string, Finding>();
+        for (const b of baselineList) {
+          baselineMap.set(getKey(b), b);
+        }
+
+        const newFindings: Finding[] = [];
+        const persistingFindings: Finding[] = [];
+        const matchedBaselineKeys = new Set<string>();
+
+        for (const c of currentList) {
+          const key = getKey(c);
+          if (baselineMap.has(key)) {
+            persistingFindings.push(c);
+            matchedBaselineKeys.add(key);
+          } else {
+            newFindings.push(c);
+          }
+        }
+
+        const resolvedFindings = baselineList.filter(b => !matchedBaselineKeys.has(getKey(b)));
+
+        return {
+          newFindings,
+          resolvedFindings,
+          persistingFindings,
+          diffSummary: {
+            totalCurrent: currentList.length,
+            totalBaseline: baselineList.length,
+            newCount: newFindings.length,
+            resolvedCount: resolvedFindings.length,
+            persistingCount: persistingFindings.length
+          }
+        };
+      }
+    });
+
     // -------------------------------------------------------------------------
     // 5. AI EXPLAINER (CONSOLIDATED AI ANALYSIS)
     // -------------------------------------------------------------------------
@@ -744,9 +871,24 @@ export class NodeRegistry {
 
         const provider = LlmProviderFactory.getProvider(providerType);
 
-        const analyses = await Promise.all(
-          findings.map(f => SmartSecurityCategorizer.analyzeFinding(f, provider))
-        );
+        // Process findings: top 3 findings analyzed sequentially with slight delay to avoid rate-limiting,
+        // while the remaining findings use deterministic Tier 1 AppSec rules (100% precision)
+        const analyses: any[] = [];
+        const maxLlmItems = providerType === 'gigachat' ? 3 : findings.length;
+
+        for (let i = 0; i < findings.length; i++) {
+          const f = findings[i];
+          if (i < maxLlmItems && providerType !== 'offline-smart') {
+            const analysis = await SmartSecurityCategorizer.analyzeFinding(f, provider);
+            analyses.push(analysis);
+            if (i + 1 < maxLlmItems && providerType === 'gigachat') {
+              await new Promise(r => setTimeout(r, 300));
+            }
+          } else {
+            const analysis = await SmartSecurityCategorizer.analyzeFinding(f, false);
+            analyses.push(analysis);
+          }
+        }
 
         const executive = await SmartSecurityCategorizer.generateExecutiveSummary(findings, provider);
 
@@ -944,18 +1086,26 @@ export class NodeRegistry {
 
         const jsonPath = path.join(outDir, 'submission-report.json');
         const mdPath = path.join(outDir, 'audit-report.md');
+        const sarifPath = path.join(outDir, 'findings.sarif');
+
+        const sarifObj = exportToSarif(findings);
+        const sarifJson = JSON.stringify(sarifObj, null, 2);
 
         fs.writeFileSync(jsonPath, submissionJson, 'utf-8');
         fs.writeFileSync(mdPath, md, 'utf-8');
+        fs.writeFileSync(sarifPath, sarifJson, 'utf-8');
 
         return {
           reportFiles: {
             jsonPath,
             mdPath,
+            sarifPath,
             jsonContent: submissionJson,
-            mdContent: md
+            mdContent: md,
+            sarifContent: sarifJson
           },
           submissionJson,
+          sarif: sarifObj,
           findingsCount: cleanFindings.length,
           allFindings: findings,
           findings: findings,

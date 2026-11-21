@@ -24,6 +24,8 @@ build/
 *.log
 reports/*.json
 reports/*.md
+reports/*.sarif
+*.zip
 !reports/.gitkeep
 
 # Operating System & Editor Files

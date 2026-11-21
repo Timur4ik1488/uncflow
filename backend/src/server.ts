@@ -16,6 +16,7 @@ import type { WorkflowGraph, WorkflowExecutionEvent } from './engine/types.ts';
 import { extractWorkflowFindings } from './engine/workflow-utils.ts';
 import { isPrivateOrLoopbackUrl } from './validators/ssrf-validator.ts';
 import { maskSensitiveText, sanitizeFindingForExport } from './validators/submission-validator.ts';
+import { exportToSarif } from './exporters/sarif.ts';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
@@ -280,11 +281,24 @@ const server = http.createServer(async (req, res) => {
     // GET /api/auth/github/callback (OAuth Callback)
     if (req.method === 'GET' && pathname === '/api/auth/github/callback') {
       const code = url.searchParams.get('code');
+      const ghError = url.searchParams.get('error_description') || url.searchParams.get('error');
       const clientId = process.env.GITHUB_CLIENT_ID;
       const clientSecret = process.env.GITHUB_CLIENT_SECRET;
 
-      if (!code || !clientId || !clientSecret) {
-        res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent('Отсутствуют параметры GitHub OAuth') });
+      if (ghError) {
+        res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent(ghError) });
+        res.end();
+        return;
+      }
+
+      if (!clientId || !clientSecret) {
+        res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent('Отсутствуют параметры GitHub OAuth Client ID или Client Secret на сервере') });
+        res.end();
+        return;
+      }
+
+      if (!code) {
+        res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent('Код авторизации не получен от GitHub') });
         res.end();
         return;
       }
@@ -1374,15 +1388,30 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 10. GET /api/reports/latest
-    if (req.method === 'GET' && pathname === '/api/reports/latest') {
+    // 10. GET /api/reports/latest or /api/reports/sarif
+    if (req.method === 'GET' && (pathname === '/api/reports/latest' || pathname === '/api/reports/sarif')) {
+      const format = url.searchParams.get('format') || (pathname === '/api/reports/sarif' ? 'sarif' : 'json');
+
       // First try PostgreSQL reports table
       const dbReport = await db.getLatestReport();
+      let findings: any[] = [];
+
       if (dbReport) {
+        findings = dbReport.jsonContent?.findings || [];
+        if (format === 'sarif') {
+          const sarif = exportToSarif(findings);
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Content-Disposition': 'attachment; filename="uncflow-findings.sarif"'
+          });
+          res.end(JSON.stringify(sarif, null, 2));
+          return;
+        }
+
         const payload = {
           totalVulnerabilities: dbReport.totalVulnerabilities,
           summary: dbReport.summary,
-          findings: dbReport.jsonContent?.findings || [],
+          findings,
           json: dbReport.jsonContent,
           markdown: dbReport.markdownContent
         };
@@ -1394,6 +1423,7 @@ const server = http.createServer(async (req, res) => {
       // Fallback to disk files
       const jsonPath = path.resolve(process.cwd(), 'reports', 'submission-report.json');
       const mdPath = path.resolve(process.cwd(), 'reports', 'audit-report.md');
+      const sarifPath = path.resolve(process.cwd(), 'reports', 'findings.sarif');
 
       let jsonContent: any = null;
       let mdContent: string = '';
@@ -1410,7 +1440,29 @@ const server = http.createServer(async (req, res) => {
         || extractWorkflowFindings(undefined, runHistory[0]?.result)
         || [];
 
-      const findings = Array.isArray(rawFindings) ? rawFindings : [];
+      findings = Array.isArray(rawFindings) ? rawFindings : [];
+
+      if (format === 'sarif') {
+        if (fs.existsSync(sarifPath)) {
+          try {
+            const sarifFromFile = JSON.parse(fs.readFileSync(sarifPath, 'utf-8'));
+            res.writeHead(200, {
+              'Content-Type': 'application/json',
+              'Content-Disposition': 'attachment; filename="uncflow-findings.sarif"'
+            });
+            res.end(JSON.stringify(sarifFromFile, null, 2));
+            return;
+          } catch {}
+        }
+        const sarif = exportToSarif(findings);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Disposition': 'attachment; filename="uncflow-findings.sarif"'
+        });
+        res.end(JSON.stringify(sarif, null, 2));
+        return;
+      }
+
       const critical = findings.filter((f: any) => f.severity === 'CRITICAL').length;
       const high = findings.filter((f: any) => f.severity === 'HIGH').length;
       const medium = findings.filter((f: any) => f.severity === 'MEDIUM').length;

@@ -33,14 +33,31 @@ function parseArgs(): CliArgs {
     }
   }
 
+  const rootDir = fs.existsSync(path.join(process.cwd(), 'test-dataset'))
+    ? process.cwd()
+    : path.resolve(process.cwd(), '..');
+
   if (!target) {
-    // Default to test-dataset/training-project if not specified
-    const defaultTarget = path.join(process.cwd(), 'test-dataset', 'training-project');
+    const defaultTarget = path.join(rootDir, 'test-dataset', 'training-project');
     if (fs.existsSync(defaultTarget)) {
       target = defaultTarget;
     } else {
       console.error('Error: --target <path> argument is required');
       process.exit(1);
+    }
+  }
+
+  if (!groundTruth) {
+    const defaultGt = path.join(rootDir, 'test-dataset', 'ground-truth', 'training-findings.json');
+    if (fs.existsSync(defaultGt)) {
+      groundTruth = defaultGt;
+    }
+  }
+
+  if (!vulnDb) {
+    const defaultDb = path.join(rootDir, 'test-dataset', 'vulnerability-database', 'vulnerabilities.json');
+    if (fs.existsSync(defaultDb)) {
+      vulnDb = defaultDb;
     }
   }
 

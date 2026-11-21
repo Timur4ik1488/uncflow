@@ -42,7 +42,9 @@ function runVerification() {
   console.log('  CYBER GARDEN 2026: VERIFYING CUSTOM ANALYZERS ACCURACY');
   console.log('===============================================================\n');
 
-  const rootDir = process.cwd();
+  const rootDir = fs.existsSync(path.join(process.cwd(), 'test-dataset'))
+    ? process.cwd()
+    : path.resolve(process.cwd(), '..');
   const testDatasetDir = path.join(rootDir, 'test-dataset');
   const projectRoot = path.join(testDatasetDir, 'training-project');
   const groundTruthPath = path.join(testDatasetDir, 'ground-truth', 'training-findings.json');

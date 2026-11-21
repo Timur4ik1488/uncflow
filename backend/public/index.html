@@ -2913,7 +2913,12 @@
           // Auto-reflect Vault profile tokens for telegram and GigaChat
           if ((s.name === 'telegramBotToken' || s.name === 'botToken') && currentUser?.hasTelegramBotToken) {
             placeholder = `Привязан токен из Vault (${currentUser.telegramBotTokenMasked})`;
-            badgeHtml = `<div class="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-medium pt-0.5"><i class="fa-solid fa-circle-check"></i><span>Привязан токен из Vault (${currentUser.telegramBotTokenMasked})</span></div>`;
+            badgeHtml = `
+              <div class="flex items-center justify-between text-[10px] text-emerald-400 font-medium pt-0.5">
+                <span class="flex items-center space-x-1"><i class="fa-solid fa-circle-check"></i><span>Токен бота привязан из профиля (${currentUser.telegramBotTokenMasked})</span></span>
+                <span class="text-gray-400">Вводить повторно не требуется</span>
+              </div>
+            `;
           } else if ((s.name === 'telegramChatId' || s.name === 'chatId') && currentUser?.telegramChatId) {
             if (!val || val === '@security_audit') {
               val = currentUser.telegramChatId;
@@ -2927,7 +2932,12 @@
             `;
           } else if (s.name === 'credentials' && (node.type === 'ai.explainer' || node.type === 'ai.gigachat') && currentUser?.hasGigachatCredentials) {
             placeholder = `Привязан ключ из Vault (${currentUser.gigachatCredentialsMasked})`;
-            badgeHtml = `<div class="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-medium pt-0.5"><i class="fa-solid fa-circle-check"></i><span>Ключ GigaChat API привязан из Vault (${currentUser.gigachatCredentialsMasked})</span></div>`;
+            badgeHtml = `
+              <div class="flex items-center justify-between text-[10px] text-purple-400 font-medium pt-0.5">
+                <span class="flex items-center space-x-1"><i class="fa-solid fa-circle-check"></i><span>Ключ GigaChat привязан из профиля (${currentUser.gigachatCredentialsMasked})</span></span>
+                <span class="text-gray-400">Вводить повторно не требуется</span>
+              </div>
+            `;
           }
 
           const row = document.createElement('div');
@@ -3332,10 +3342,10 @@
           channelLabel = 'Telegram';
           testBtnHtml = `
             <div class="space-y-2">
-              ${currentUser?.telegramChatId ? `
+              ${(currentUser?.telegramChatId || currentUser?.hasTelegramBotToken) ? `
                 <button type="button" onclick="applyUserTelegramToNode('${node.id}')" class="w-full py-1.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-xs font-medium text-emerald-300 border border-emerald-500/30 flex items-center justify-center space-x-2 transition cursor-pointer">
                   <i class="fa-solid fa-wand-magic-sparkles text-emerald-400"></i>
-                  <span>Вставить мой Chat ID (${currentUser.telegramChatId})</span>
+                  <span>Привязать Telegram из профиля ${currentUser.telegramChatId ? `(Чат: ${currentUser.telegramChatId})` : ''}</span>
                 </button>
               ` : ''}
               <button type="button" onclick="testTelegramSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
@@ -3441,9 +3451,11 @@
         updateNodeSetting(nodeId, 'telegramChatId', currentUser.telegramChatId);
         updateNodeSetting(nodeId, 'chatId', currentUser.telegramChatId);
       }
+      updateNodeSetting(nodeId, 'channel', 'telegram');
       selectNode(nodeId);
-      showBanner(`Вставлен ваш Telegram Chat ID: ${currentUser.telegramChatId}`);
-      setTimeout(hideBanner, 2000);
+      const tgBotInfo = currentUser.hasTelegramBotToken ? ` и токен бота (${currentUser.telegramBotTokenMasked})` : '';
+      showBanner(`Реквизиты Telegram привязаны из профиля: чат ${currentUser.telegramChatId || 'не задан'}${tgBotInfo}`);
+      setTimeout(hideBanner, 3000);
     }
 
     async function testTelegramSend(nodeId) {
@@ -3454,7 +3466,12 @@
         chatId = currentUser.telegramChatId;
       }
 
-      showBanner('Проверка отправки в Telegram...', true);
+      if (!botToken && currentUser?.hasTelegramBotToken) {
+        showBanner(`Отправка в Telegram через токен бота из профиля (${currentUser.telegramBotTokenMasked})...`, true);
+      } else {
+        showBanner('Проверка отправки в Telegram...', true);
+      }
+
       try {
         const headers = { 'Content-Type': 'application/json' };
         if (currentAuthToken) headers['Authorization'] = 'Bearer ' + currentAuthToken;
@@ -3480,7 +3497,12 @@
       const credentials = node?.settings?.credentials || '';
       const scope = node?.settings?.scope || 'GIGACHAT_API_PERS';
 
-      showBanner('Проверка подключения к Сбер GigaChat API...', true);
+      if (!credentials && currentUser?.hasGigachatCredentials) {
+        showBanner(`Проверка GigaChat API через ключ из профиля (${currentUser.gigachatCredentialsMasked})...`, true);
+      } else {
+        showBanner('Проверка подключения к Сбер GigaChat API...', true);
+      }
+
       try {
         const headers = { 'Content-Type': 'application/json' };
         if (currentAuthToken) headers['Authorization'] = 'Bearer ' + currentAuthToken;
