@@ -1715,6 +1715,16 @@
         }
       }
 
+      if (def.type === 'notify.channel') {
+        const chan = newNode.settings.channel || 'telegram';
+        const chanLabels = {
+          telegram: 'Telegram',
+          yandex: 'Яндекс Почта',
+          webhook: 'Webhook'
+        };
+        newNode.name = `Каналы связи: ${chanLabels[chan] || 'Telegram'}`;
+      }
+
       if (!currentWorkflow) {
         currentWorkflow = { id: 'wf-custom', name: 'Пользовательский сценарий', nodes: [], edges: [] };
       }
@@ -2637,7 +2647,18 @@
         settingsContainer.className = 'space-y-3 pt-3 border-t border-white/10';
         settingsContainer.innerHTML = '<span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Параметры</span>';
 
+        const isChannelNode = (node.type === 'notify.channel');
+        const activeChannel = node.settings?.channel || 'telegram';
+
         for (const s of def.settings) {
+          if (isChannelNode) {
+            if (s.name !== 'channel' && s.name !== 'onlyOnCritical') {
+              if (s.name.startsWith('telegram') && activeChannel !== 'telegram') continue;
+              if (s.name.startsWith('yandex') && activeChannel !== 'yandex') continue;
+              if (s.name.startsWith('webhook') && activeChannel !== 'webhook') continue;
+            }
+          }
+
           const val = node.settings[s.name] !== undefined ? node.settings[s.name] : (s.default !== undefined ? s.default : '');
           const row = document.createElement('div');
           row.className = 'space-y-1';
@@ -2647,8 +2668,11 @@
             const opts = (s.options || []).map(o => `
               <option value="${o.value}" ${String(val) === String(o.value) ? 'selected' : ''}>${o.label}</option>
             `).join('');
+            const onchange = (s.name === 'channel')
+              ? `updateNodeSetting('${node.id}', '${s.name}', this.value); onChannelTypeChanged('${node.id}', this.value);`
+              : `updateNodeSetting('${node.id}', '${s.name}', this.value)`;
             inputHtml = `
-              <select onchange="updateNodeSetting('${node.id}', '${s.name}', this.value)"
+              <select onchange="${onchange}"
                       class="w-full bg-black/60 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-cyan-400 text-gray-100 font-medium cursor-pointer">
                 ${opts}
               </select>
@@ -2779,6 +2803,23 @@
         pushHistoryState();
         node.settings = node.settings || {};
         node.settings[key] = value;
+      }
+    }
+
+    function onChannelTypeChanged(nodeId, newChannel) {
+      const node = currentWorkflow?.nodes?.find(n => n.id === nodeId);
+      if (node) {
+        const labels = {
+          telegram: 'Каналы связи: Telegram',
+          yandex: 'Каналы связи: Яндекс Почта',
+          webhook: 'Каналы связи: Webhook'
+        };
+        const currentName = node.name || '';
+        if (!currentName || currentName.startsWith('Каналы связи') || currentName === 'Каналы связи') {
+          node.name = labels[newChannel] || 'Каналы связи';
+        }
+        renderNodeCards();
+        selectNode(nodeId);
       }
     }
 
@@ -2992,41 +3033,62 @@
 
       // 3. Consolidated Communication Channels Helper (Telegram, Yandex Mail, Webhook)
       if (node.type === 'notify.channel' || node.type === 'notify.telegram' || node.type === 'notify.webhook') {
+        let activeChannel = 'telegram';
+        if (node.type === 'notify.channel') {
+          activeChannel = node.settings?.channel || 'telegram';
+        } else if (node.type === 'notify.webhook') {
+          activeChannel = 'webhook';
+        }
+
         const box = document.createElement('div');
         box.className = 'p-3.5 rounded-2xl bg-sky-950/25 border border-sky-500/30 space-y-3 text-xs mt-3';
+
+        let channelLabel = 'Telegram';
+        let channelColor = 'sky';
+        let testBtnHtml = '';
+
+        if (activeChannel === 'telegram') {
+          channelLabel = 'Telegram';
+          channelColor = 'sky';
+          testBtnHtml = `
+            <button type="button" onclick="testTelegramSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-semibold text-white flex items-center justify-center space-x-2 transition cursor-pointer shadow-lg shadow-sky-900/30">
+              <i class="fa-brands fa-telegram text-base"></i>
+              <span>Отправить тестовое сообщение в Telegram</span>
+            </button>
+          `;
+        } else if (activeChannel === 'yandex') {
+          channelLabel = 'Яндекс Почта';
+          channelColor = 'amber';
+          testBtnHtml = `
+            <button type="button" onclick="testYandexSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white flex items-center justify-center space-x-2 transition cursor-pointer shadow-lg shadow-amber-900/30">
+              <i class="fa-solid fa-envelope text-base"></i>
+              <span>Отправить тестовое письмо (SSL:465)</span>
+            </button>
+          `;
+        } else if (activeChannel === 'webhook') {
+          channelLabel = 'Webhook (HTTP POST)';
+          channelColor = 'emerald';
+          testBtnHtml = `
+            <button type="button" onclick="testOutgoingWebhook('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white flex items-center justify-center space-x-2 transition cursor-pointer shadow-lg shadow-emerald-900/30">
+              <i class="fa-solid fa-globe text-base"></i>
+              <span>Отправить тестовый Webhook</span>
+            </button>
+          `;
+        }
+
         box.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-paper-plane text-sky-400"></i>
-              <span class="font-bold text-white text-[11px] uppercase tracking-wider">Проверка каналов связи</span>
+              <i class="fa-solid fa-paper-plane text-${channelColor}-400"></i>
+              <span class="font-bold text-white text-[11px] uppercase tracking-wider">Канал: ${channelLabel}</span>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono">.env Auto</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-gray-300 font-mono">.env Auto</span>
           </div>
           <p class="text-[11px] text-gray-300 leading-snug">
-            Все токены и пароли автоматически считываются из <code class="text-sky-300">.env</code> при пустых полях в настройках блока.
+            Токены и параметры берутся из полей выше либо автоматически считываются из <code class="text-${channelColor}-300">.env</code> при пустых значениях.
           </p>
-          <div class="grid grid-cols-1 gap-2">
-            <button type="button" onclick="testTelegramSend('${node.id}')" class="liquid-pill py-2 px-3 text-[11px] font-medium text-sky-200 hover:text-white flex items-center justify-between group">
-              <span class="flex items-center space-x-2">
-                <i class="fa-brands fa-telegram text-sky-400 text-sm"></i>
-                <span>Тест Telegram бота</span>
-              </span>
-              <i class="fa-solid fa-arrow-right text-[10px] text-gray-400 group-hover:translate-x-0.5 transition"></i>
-            </button>
-            <button type="button" onclick="testYandexSend('${node.id}')" class="liquid-pill py-2 px-3 text-[11px] font-medium text-amber-200 hover:text-white flex items-center justify-between group">
-              <span class="flex items-center space-x-2">
-                <i class="fa-solid fa-envelope text-amber-400 text-sm"></i>
-                <span>Тест Яндекс Почты (SSL:465)</span>
-              </span>
-              <i class="fa-solid fa-arrow-right text-[10px] text-gray-400 group-hover:translate-x-0.5 transition"></i>
-            </button>
-            <button type="button" onclick="testOutgoingWebhook('${node.id}')" class="liquid-pill py-2 px-3 text-[11px] font-medium text-emerald-200 hover:text-white flex items-center justify-between group">
-              <span class="flex items-center space-x-2">
-                <i class="fa-solid fa-globe text-emerald-400 text-sm"></i>
-                <span>Тест Webhook (HTTP POST)</span>
-              </span>
-              <i class="fa-solid fa-arrow-right text-[10px] text-gray-400 group-hover:translate-x-0.5 transition"></i>
-            </button>
+          <div class="pt-1">
+            ${testBtnHtml}
           </div>
         `;
         form.appendChild(box);
@@ -3171,15 +3233,15 @@
 
     async function testOutgoingWebhook(nodeId) {
       const node = currentWorkflow?.nodes?.find(n => n.id === nodeId);
-      const url = node?.settings?.url || 'https://webhook.site/test';
-      showBanner(`Тестирование отправки на ${url}...`, true);
+      const url = node?.settings?.webhookUrl || node?.settings?.url || '';
+      showBanner(url ? `Тестирование отправки на ${url}...` : 'Тестирование отправки Webhook (.env fallback)...', true);
       try {
         const res = await fetch('/api/webhook/test-send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             url,
-            secret: node?.settings?.secretHeader,
+            secret: node?.settings?.webhookSecret || node?.settings?.secretHeader,
             payload: {
               event: 'test_notification',
               source: 'uncflow Security Workflow',

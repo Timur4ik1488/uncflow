@@ -852,17 +852,25 @@ export class NodeRegistry {
         { id: 'channels', label: 'Каналы', type: 'any' }
       ],
       settings: [
+        {
+          name: 'channel',
+          label: 'Канал связи',
+          type: 'select',
+          default: 'telegram',
+          options: [
+            { label: 'Telegram (Бот / Чат)', value: 'telegram' },
+            { label: 'Яндекс Почта (Email)', value: 'yandex' },
+            { label: 'Webhook (HTTP POST)', value: 'webhook' }
+          ]
+        },
         // Telegram
-        { name: 'enableTelegram', label: 'Отправлять в Telegram', type: 'boolean', default: true },
         { name: 'telegramBotToken', label: 'Telegram Bot Token', type: 'password', description: 'Оставьте пустым для токена из .env (TELEGRAM_BOT_TOKEN)' },
         { name: 'telegramChatId', label: 'Telegram Chat ID / Канал', type: 'string', default: '@security_audit', description: 'Оставьте пустым для Chat ID из .env (TELEGRAM_CHAT_ID)' },
         // Yandex Mail
-        { name: 'enableYandex', label: 'Отправлять в Яндекс Почту', type: 'boolean', default: false },
         { name: 'yandexUser', label: 'Логин / Почта Яндекса', type: 'string', description: 'Оставьте пустым для логина из .env (YANDEX_MAIL_USER)' },
         { name: 'yandexPassword', label: 'Пароль приложения Яндекса', type: 'password', description: 'Оставьте пустым для пароля из .env (YANDEX_MAIL_PASSWORD)' },
         { name: 'yandexTo', label: 'Получатель отчёта (Email)', type: 'string', description: 'Оставьте пустым для получателя из .env (YANDEX_MAIL_TO)' },
         // Webhook
-        { name: 'enableWebhook', label: 'Отправлять на Webhook', type: 'boolean', default: false },
         { name: 'webhookUrl', label: 'Webhook URL', type: 'string', default: 'https://webhook.site/test', description: 'Оставьте пустым для URL из .env (WEBHOOK_URL)' },
         { name: 'webhookSecret', label: 'Секрет (X-Security-Token)', type: 'password', description: 'Оставьте пустым для секрета из .env (WEBHOOK_SECRET)' },
         // Filtering
@@ -909,13 +917,13 @@ export class NodeRegistry {
 
         const channelResults: Record<string, any> = {};
         let anySent = false;
+        const selectedChannel = settings.channel || (settings.enableYandex ? 'yandex' : (settings.enableWebhook ? 'webhook' : 'telegram'));
 
         // 1. Telegram
-        const enableTg = settings.enableTelegram !== false;
-        const tgBotToken = (settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
-        const tgChatId = (settings.telegramChatId || process.env.TELEGRAM_CHAT_ID || '@security_audit').trim();
+        if (selectedChannel === 'telegram') {
+          const tgBotToken = (settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+          const tgChatId = (settings.telegramChatId || process.env.TELEGRAM_CHAT_ID || '@security_audit').trim();
 
-        if (enableTg) {
           let tgMessage = `🛡️ *uncflow — Отчёт проверки безопасности*\n\n`;
           if (repoUrl) {
             tgMessage += `🔗 *Репозиторий:* [${repoUrl}](${repoUrl})\n`;
@@ -1002,8 +1010,7 @@ export class NodeRegistry {
         }
 
         // 2. Yandex Mail
-        const enableYandex = Boolean(settings.enableYandex || process.env.YANDEX_MAIL_TO);
-        if (enableYandex) {
+        if (selectedChannel === 'yandex') {
           const yUser = (settings.yandexUser || process.env.YANDEX_MAIL_USER || '').trim();
           const yPass = (settings.yandexPassword || process.env.YANDEX_MAIL_PASSWORD || '').trim();
           const yTo = (settings.yandexTo || process.env.YANDEX_MAIL_TO || yUser || '').trim();
@@ -1028,58 +1035,59 @@ export class NodeRegistry {
         }
 
         // 3. Webhook
-        const enableWh = Boolean(settings.enableWebhook || (process.env.WEBHOOK_URL && settings.enableWebhook !== false));
-        const whUrl = (settings.webhookUrl || process.env.WEBHOOK_URL || '').trim();
-        const whSecret = (settings.webhookSecret || process.env.WEBHOOK_SECRET || '').trim();
+        if (selectedChannel === 'webhook') {
+          const whUrl = (settings.webhookUrl || process.env.WEBHOOK_URL || '').trim();
+          const whSecret = (settings.webhookSecret || process.env.WEBHOOK_SECRET || '').trim();
 
-        if (enableWh && whUrl && whUrl !== 'https://webhook.site/test') {
-          const isRemote = repoUrl && (repoUrl.includes('github.com') || repoUrl.includes('gitverse.ru'));
-          const cleanRepo = repoUrl.replace(/\.git$/, '');
+          if (whUrl && whUrl !== 'https://webhook.site/test') {
+            const isRemote = repoUrl && (repoUrl.includes('github.com') || repoUrl.includes('gitverse.ru'));
+            const cleanRepo = repoUrl.replace(/\.git$/, '');
 
-          const payload = {
-            event: 'security_audit_completed',
-            text: `🛡️ uncflow: Аудит безопасности завершён для ${repoUrl || 'проекта'}. Найдено ${count} уязвимостей (${criticalList.length} CRIT, ${highList.length} HIGH).`,
-            timestamp: new Date().toISOString(),
-            repoUrl,
-            branch,
-            summary: {
-              totalFindings: count,
-              criticalCount: criticalList.length,
-              highCount: highList.length,
-              mediumCount: mediumList.length,
-              lowCount: lowList.length
-            },
-            findings: findings.map((f: any) => ({
-              category: f.category,
-              class: f.class || f.advisoryId || f.category,
-              severity: f.severity,
-              filePath: f.path,
-              line: f.line,
-              endLine: f.endLine,
-              description: f.description,
-              remediation: f.remediation,
-              sourceUrl: (isRemote && f.path) ? `${cleanRepo}/blob/${branch}/${f.path}${f.line ? '#L' + f.line : ''}` : null
-            }))
-          };
-
-          try {
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (whSecret) headers['X-Security-Token'] = whSecret;
-
-            const resp = await fetch(whUrl, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(6000)
-            });
-            if (resp.ok) anySent = true;
-            channelResults.webhook = {
-              sent: resp.ok,
-              status: resp.status,
-              targetUrl: whUrl
+            const payload = {
+              event: 'security_audit_completed',
+              text: `🛡️ uncflow: Аудит безопасности завершён для ${repoUrl || 'проекта'}. Найдено ${count} уязвимостей (${criticalList.length} CRIT, ${highList.length} HIGH).`,
+              timestamp: new Date().toISOString(),
+              repoUrl,
+              branch,
+              summary: {
+                totalFindings: count,
+                criticalCount: criticalList.length,
+                highCount: highList.length,
+                mediumCount: mediumList.length,
+                lowCount: lowList.length
+              },
+              findings: findings.map((f: any) => ({
+                category: f.category,
+                class: f.class || f.advisoryId || f.category,
+                severity: f.severity,
+                filePath: f.path,
+                line: f.line,
+                endLine: f.endLine,
+                description: f.description,
+                remediation: f.remediation,
+                sourceUrl: (isRemote && f.path) ? `${cleanRepo}/blob/${branch}/${f.path}${f.line ? '#L' + f.line : ''}` : null
+              }))
             };
-          } catch (err: any) {
-            channelResults.webhook = { sent: false, error: err.message, targetUrl: whUrl };
+
+            try {
+              const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+              if (whSecret) headers['X-Security-Token'] = whSecret;
+
+              const resp = await fetch(whUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(6000)
+              });
+              if (resp.ok) anySent = true;
+              channelResults.webhook = {
+                sent: resp.ok,
+                status: resp.status,
+                targetUrl: whUrl
+              };
+            } catch (err: any) {
+              channelResults.webhook = { sent: false, error: err.message, targetUrl: whUrl };
+            }
           }
         }
 

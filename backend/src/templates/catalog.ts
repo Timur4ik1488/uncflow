@@ -125,7 +125,7 @@ export class TemplateCatalog {
           { id: 'node-cond', type: 'logic.condition', position: { x: 1580, y: 270 }, settings: { rule: 'has_critical' } },
           { id: 'node-ai', type: 'ai.explainer', position: { x: 1960, y: 220 }, settings: { provider: 'gigachat' } },
           { id: 'node-report', type: 'report.dual', position: { x: 2340, y: 220 }, settings: { outputDir: 'reports' } },
-          { id: 'node-tg', type: 'notify.channel', position: { x: 2720, y: 220 }, settings: { enableTelegram: true, telegramChatId: '@security_audit' } }
+          { id: 'node-tg', type: 'notify.channel', position: { x: 2720, y: 220 }, settings: { channel: 'telegram', telegramChatId: '@security_audit' } }
         ],
         edges: [
           { id: 'e1', source: 'node-trigger', target: 'node-source' },
@@ -164,7 +164,7 @@ export class TemplateCatalog {
           { id: 'node-agg', type: 'scanner.aggregator', position: { x: 1200, y: 270 }, settings: {} },
           { id: 'node-gigachat', type: 'ai.explainer', position: { x: 1600, y: 270 }, settings: { provider: 'gigachat', model: 'GigaChat-Pro' } },
           { id: 'node-report', type: 'report.dual', position: { x: 2000, y: 270 }, settings: { outputDir: 'reports' } },
-          { id: 'node-tg', type: 'notify.channel', position: { x: 2400, y: 270 }, settings: { enableTelegram: true, telegramChatId: '@security_audit' } }
+          { id: 'node-tg', type: 'notify.channel', position: { x: 2400, y: 270 }, settings: { channel: 'telegram', telegramChatId: '@security_audit' } }
         ],
         edges: [
           { id: 'e1', source: 'node-trigger', target: 'node-source' },
@@ -250,7 +250,7 @@ export class TemplateCatalog {
           { id: 'node-agg', type: 'scanner.aggregator', position: { x: 1200, y: 220 }, settings: {} },
           { id: 'node-cond', type: 'logic.condition', position: { x: 1580, y: 220 }, settings: { rule: 'has_critical' } },
           { id: 'node-report', type: 'report.dual', position: { x: 1960, y: 160 }, settings: {} },
-          { id: 'node-tg', type: 'notify.channel', position: { x: 2340, y: 160 }, settings: {} }
+          { id: 'node-tg', type: 'notify.channel', position: { x: 2340, y: 160 }, settings: { channel: 'telegram', telegramChatId: '@security_audit' } }
         ],
         edges: [
           { id: 'e1', source: 'node-trigger', target: 'node-source' },

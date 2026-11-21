@@ -746,10 +746,10 @@ const server = http.createServer(async (req, res) => {
     // POST /api/webhook/test-send (Test dispatching a webhook to an external URL)
     if (req.method === 'POST' && pathname === '/api/webhook/test-send') {
       const body = await parseJsonBody(req);
-      const targetUrl = (body.url || '').trim();
+      const targetUrl = (body.url || '').trim() || process.env.WEBHOOK_URL || '';
       if (!targetUrl) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: 'URL вебхука не указан' }));
+        res.end(JSON.stringify({ success: false, error: 'URL вебхука не указан в блоке и отсутствует в .env (WEBHOOK_URL)' }));
         return;
       }
 
@@ -762,7 +762,8 @@ const server = http.createServer(async (req, res) => {
 
       try {
         const fetchHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (body.secret) fetchHeaders['X-Security-Token'] = body.secret;
+        const secret = (body.secret || '').trim() || process.env.WEBHOOK_SECRET || '';
+        if (secret) fetchHeaders['X-Security-Token'] = secret;
         const testResp = await fetch(targetUrl, {
           method: 'POST',
           headers: fetchHeaders,
