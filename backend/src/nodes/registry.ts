@@ -255,7 +255,7 @@ export class NodeRegistry {
         { id: 'repoUrl', label: 'Путь к проекту', type: 'string' }
       ],
       settings: [
-        { name: 'path', label: 'Путь к проекту', type: 'string', default: 'test-dataset/training-project', required: true, description: 'Абсолютный или относительный путь к каталогу с исходным кодом' }
+        { name: 'path', label: 'Путь к проекту', type: 'string', default: 'test-dataset/training-project', required: true }
       ],
       run: async (inputs, settings) => {
         let targetPath = inputs.codePath || inputs.path || settings.path || 'test-dataset/training-project';
@@ -282,10 +282,10 @@ export class NodeRegistry {
         { id: 'repoUrl', label: 'URL Репозитория', type: 'string' }
       ],
       settings: [
-        { name: 'repoUrl', label: 'URL Репозитория (HTTPS)', type: 'string', default: 'https://github.com/TBagirov/training', required: true, description: 'HTTPS адрес репозитория на GitHub / GitVerse / GitLab' },
-        { name: 'branch', label: 'Ветка (Branch)', type: 'string', default: 'main', description: 'Имя целевой ветки (main, master, etc.)' },
-        { name: 'subDir', label: 'Поддиректория проекта', type: 'string', default: '', description: 'Опционально: вложенная папка с кодом (например training-project)' },
-        { name: 'token', label: 'Personal Access Token (PAT)', type: 'password', description: 'Опционально: для приватных репозиториев GitHub или GitVerse' },
+        { name: 'repoUrl', label: 'URL Репозитория (HTTPS)', type: 'string', default: 'https://github.com/TBagirov/training', required: true },
+        { name: 'branch', label: 'Ветка (Branch)', type: 'string', default: 'main' },
+        { name: 'subDir', label: 'Поддиректория проекта', type: 'string', default: '' },
+        { name: 'token', label: 'Токен доступа (PAT)', type: 'password' },
         { name: 'depth', label: 'Глубина клонирования (depth)', type: 'number', default: 1 }
       ],
       run: async (inputs, settings, context) => {
@@ -864,15 +864,15 @@ export class NodeRegistry {
           ]
         },
         // Telegram
-        { name: 'telegramBotToken', label: 'Telegram Bot Token', type: 'password', description: 'Оставьте пустым для токена из .env (TELEGRAM_BOT_TOKEN)' },
-        { name: 'telegramChatId', label: 'Telegram Chat ID / Канал', type: 'string', default: '@security_audit', description: 'Оставьте пустым для Chat ID из .env (TELEGRAM_CHAT_ID)' },
+        { name: 'telegramBotToken', label: 'Telegram Bot Token', type: 'password' },
+        { name: 'telegramChatId', label: 'Telegram Chat ID', type: 'string' },
         // Yandex Mail
-        { name: 'yandexUser', label: 'Логин / Почта Яндекса', type: 'string', description: 'Оставьте пустым для логина из .env (YANDEX_MAIL_USER)' },
-        { name: 'yandexPassword', label: 'Пароль приложения Яндекса', type: 'password', description: 'Оставьте пустым для пароля из .env (YANDEX_MAIL_PASSWORD)' },
-        { name: 'yandexTo', label: 'Получатель отчёта (Email)', type: 'string', description: 'Оставьте пустым для получателя из .env (YANDEX_MAIL_TO)' },
+        { name: 'yandexUser', label: 'Почта Яндекса', type: 'string' },
+        { name: 'yandexPassword', label: 'Пароль приложения', type: 'password' },
+        { name: 'yandexTo', label: 'Получатель отчёта (Email)', type: 'string' },
         // Webhook
-        { name: 'webhookUrl', label: 'Webhook URL', type: 'string', default: 'https://webhook.site/test', description: 'Оставьте пустым для URL из .env (WEBHOOK_URL)' },
-        { name: 'webhookSecret', label: 'Секрет (X-Security-Token)', type: 'password', description: 'Оставьте пустым для секрета из .env (WEBHOOK_SECRET)' },
+        { name: 'webhookUrl', label: 'Webhook URL', type: 'string' },
+        { name: 'webhookSecret', label: 'Секрет (X-Security-Token)', type: 'password' },
         // Filtering
         { name: 'onlyOnCritical', label: 'Только при критических уязвимостях', type: 'boolean', default: false }
       ],

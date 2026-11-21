@@ -27,161 +27,172 @@
   
   <style>
     /* =============================================================
-       iOS 27 LIQUID GLASS DESIGN SYSTEM (Powered by 0kzh/glisse)
+       APPLE LIQUID GLASS DESIGN SYSTEM (macOS Sequoia / iOS 18)
        ============================================================= */
     :where(:root, [data-theme="dark"]) {
       --lg-foreground: #ffffff;
       --lg-muted: rgba(235, 235, 245, 0.65);
-      --lg-glass: rgba(18, 24, 38, 0.65);
-      --lg-glass-active: rgba(30, 42, 66, 0.82);
-      --lg-edge: rgba(255, 255, 255, 0.16);
-      --lg-drop: rgba(0, 0, 0, 0.45);
-      --lg-surface: rgba(15, 20, 32, 0.88);
-      --lg-surface-edge: rgba(255, 255, 255, 0.2);
-      --lg-shadow: rgba(0, 0, 0, 0.65);
-      --lg-highlight: rgba(255, 255, 255, 0.12);
-      --lg-separator: rgba(255, 255, 255, 0.12);
+      --lg-glass: rgba(18, 24, 38, 0.42);
+      --lg-glass-active: rgba(26, 34, 54, 0.65);
+      --lg-edge: rgba(255, 255, 255, 0.14);
+      --lg-drop: rgba(0, 0, 0, 0.4);
+      --lg-surface: rgba(18, 24, 38, 0.52);
+      --lg-surface-edge: rgba(255, 255, 255, 0.16);
+      --lg-shadow: rgba(0, 0, 0, 0.55);
+      --lg-highlight: rgba(255, 255, 255, 0.22);
+      --lg-separator: rgba(255, 255, 255, 0.1);
       --lg-destructive: #ff453a;
-      --lg-track: rgba(235, 235, 245, 0.25);
-      --lg-rail: rgba(255, 255, 255, 0.15);
+      --lg-track: rgba(235, 235, 245, 0.2);
+      --lg-rail: rgba(255, 255, 255, 0.12);
       --lg-on: #30d158;
-      --lg-fill: #10b981;
-      --lg-ring: rgba(56, 189, 248, 0.6);
-      --lg-blur: 28px;
-      --lg-filter: saturate(1.85) brightness(1.05);
+      --lg-fill: #007aff;
+      --lg-ring: rgba(0, 122, 255, 0.4);
+      --lg-blur: 24px;
+      --lg-filter: saturate(1.9) contrast(1.04);
       --lg-ease: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
+    /* Apple macOS Ambient Mesh Wallpaper */
     body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
-      background-color: #060813;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      background: #080b14 radial-gradient(ellipse 90% 70% at 50% -10%, rgba(30, 58, 138, 0.55), transparent 70%),
+                  radial-gradient(ellipse 70% 60% at 85% 65%, rgba(79, 70, 229, 0.38), transparent 70%),
+                  radial-gradient(ellipse 70% 60% at 15% 75%, rgba(13, 148, 136, 0.32), transparent 70%),
+                  radial-gradient(ellipse 60% 50% at 50% 115%, rgba(15, 23, 42, 0.65), transparent 70%);
+      background-attachment: fixed;
       color: #f3f4f6;
     }
 
-    /* Ambient Aurora Blobs behind liquid glass */
+    /* Ambient Floating Luminous Orbs behind Liquid Glass */
     .aurora-blob {
       position: absolute;
       border-radius: 50%;
-      filter: blur(110px);
-      opacity: 0.24;
+      filter: blur(85px);
+      opacity: 0.42;
       pointer-events: none;
-      animation: float-aurora 22s ease-in-out infinite alternate;
+      animation: float-aurora 24s ease-in-out infinite alternate;
     }
-    .blob-1 { top: -10%; left: 15%; width: 550px; height: 550px; background: radial-gradient(circle, #6366f1 0%, transparent 70%); }
-    .blob-2 { top: 40%; right: -5%; width: 650px; height: 650px; background: radial-gradient(circle, #a855f7 0%, transparent 70%); animation-duration: 26s; }
-    .blob-3 { bottom: -15%; left: 30%; width: 600px; height: 600px; background: radial-gradient(circle, #06b6d4 0%, transparent 70%); animation-duration: 20s; }
-    .blob-4 { top: 20%; left: -10%; width: 500px; height: 500px; background: radial-gradient(circle, #10b981 0%, transparent 70%); animation-duration: 24s; }
+    .blob-1 { top: 5%; left: 20%; width: 540px; height: 540px; background: radial-gradient(circle, rgba(14, 165, 233, 0.45) 0%, transparent 70%); }
+    .blob-2 { top: 35%; right: 5%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(99, 102, 241, 0.4) 0%, transparent 70%); animation-duration: 28s; }
+    .blob-3 { bottom: 5%; left: 30%; width: 560px; height: 560px; background: radial-gradient(circle, rgba(16, 185, 129, 0.32) 0%, transparent 70%); animation-duration: 22s; }
+    .blob-4 { top: 25%; left: 0%; width: 500px; height: 500px; background: radial-gradient(circle, rgba(79, 70, 229, 0.36) 0%, transparent 70%); animation-duration: 26s; }
 
     @keyframes float-aurora {
       0% { transform: translate(0, 0) scale(1); }
-      50% { transform: translate(35px, -25px) scale(1.06); }
-      100% { transform: translate(-25px, 35px) scale(0.96); }
+      50% { transform: translate(30px, -20px) scale(1.05); }
+      100% { transform: translate(-20px, 30px) scale(0.96); }
     }
 
     /* Canvas Grid */
     .canvas-grid {
+      background-color: rgba(9, 13, 22, 0.28);
       background-size: 28px 28px;
-      background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px);
+      background-image: radial-gradient(circle, rgba(255, 255, 255, 0.09) 1.2px, transparent 1.2px);
     }
 
-    /* Enhanced Glisse Specular Highlight */
+    /* Authentic Apple Liquid Glass Panel */
     .lg-glass {
-      border: 1px solid var(--lg-edge);
+      background: rgba(18, 24, 38, 0.44) !important;
+      -webkit-backdrop-filter: blur(24px) saturate(190%) contrast(104%) !important;
+      backdrop-filter: blur(24px) saturate(190%) contrast(104%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.13) !important;
       box-shadow: 
-        0 20px 50px -10px var(--lg-shadow),
-        inset 0 1px 0 0 rgba(255, 255, 255, 0.35),
-        inset 0 -1px 0 0 rgba(0, 0, 0, 0.3);
+        0 16px 40px -10px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.26),
+        inset 0 -1px 0 0 rgba(0, 0, 0, 0.2) !important;
     }
     .lg-glass::after {
       background: radial-gradient(
         circle 280px at var(--lg-x, 50%) var(--lg-y, 50%),
-        rgba(255, 255, 255, 0.18),
-        rgba(255, 255, 255, 0.05) 45%,
+        rgba(255, 255, 255, 0.12),
+        rgba(255, 255, 255, 0.03) 45%,
         transparent 75%
       ) !important;
     }
     .lg-glass:hover::after {
-      opacity: 0.65;
+      opacity: 0.5;
     }
     .lg-glass[data-pressed]::after,
     .lg-glass:active::after {
-      opacity: 1 !important;
+      opacity: 0.8 !important;
       transition-duration: 0s;
     }
 
-    /* Glisse Button Variants */
+    /* Apple Liquid Buttons */
     .lg-button {
       font-weight: 500;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .lg-button:hover {
       transform: translateY(-1px);
+      background-color: rgba(255, 255, 255, 0.08) !important;
     }
     .lg-button:active {
       transform: scale(0.97) translateY(0);
     }
-    .lg-button[data-variant="filled"] {
-      --lg-button-fill: #10b981;
-      color: #ffffff;
-      box-shadow: 0 4px 18px -2px rgba(16, 185, 129, 0.55), inset 0 1.5px 0 rgba(255, 255, 255, 0.5);
-    }
-    .lg-button[data-variant="filled"]:hover {
-      box-shadow: 0 8px 24px -2px rgba(16, 185, 129, 0.75), inset 0 1.5px 0 rgba(255, 255, 255, 0.7);
-    }
 
-    /* Glisse Liquid Node Card - iOS 27 squircle */
+    /* Apple Liquid Node Card */
     .liquid-node {
-      border-radius: 32px;
-      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.15s ease;
+      border-radius: 24px !important;
+      background: rgba(22, 28, 46, 0.52) !important;
+      -webkit-backdrop-filter: blur(22px) saturate(180%) contrast(102%) !important;
+      backdrop-filter: blur(22px) saturate(180%) contrast(102%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.14) !important;
+      box-shadow: 
+        0 14px 34px -4px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.26) !important;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.15s ease, background 0.18s ease;
       overflow: visible !important;
     }
     .liquid-node:hover {
-      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(26, 34, 52, 0.65) !important;
+      border-color: rgba(255, 255, 255, 0.26) !important;
       box-shadow: 
-        0 30px 65px -10px rgba(0, 0, 0, 0.85),
-        inset 0 1.5px 0 0 rgba(255, 255, 255, 0.5);
+        0 20px 48px -6px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.36) !important;
     }
     .liquid-node.selected {
-      border-color: rgba(56, 189, 248, 0.9) !important;
+      background: rgba(28, 38, 58, 0.72) !important;
+      border-color: rgba(0, 122, 255, 0.85) !important; /* Apple System Blue */
       box-shadow: 
-        0 0 0 2px rgba(56, 189, 248, 0.45),
-        0 30px 70px -10px rgba(14, 165, 233, 0.45),
-        inset 0 1.5px 0 0 rgba(255, 255, 255, 0.7) !important;
+        0 0 0 2px rgba(0, 122, 255, 0.35),
+        0 22px 50px -6px rgba(0, 122, 255, 0.22),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.42) !important;
     }
     .liquid-node.running {
-      border-color: rgba(16, 185, 129, 0.9) !important;
+      border-color: rgba(48, 209, 88, 0.85) !important; /* Apple System Mint */
       box-shadow: 
-        0 0 0 2px rgba(16, 185, 129, 0.45),
-        0 30px 70px -10px rgba(16, 185, 129, 0.4),
-        inset 0 1.5px 0 0 rgba(255, 255, 255, 0.7) !important;
-      animation: liquid-pulse 2s ease-in-out infinite;
+        0 0 0 2px rgba(48, 209, 88, 0.35),
+        0 22px 50px -6px rgba(48, 209, 88, 0.2),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.42) !important;
+      animation: apple-pulse 2s ease-in-out infinite;
     }
 
-    @keyframes liquid-pulse {
-      0%, 100% { box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4), 0 30px 70px -10px rgba(16, 185, 129, 0.4), inset 0 1.5px 0 0 rgba(255, 255, 255, 0.65); }
-      50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.7), 0 35px 80px -5px rgba(16, 185, 129, 0.6), inset 0 1.5px 0 0 rgba(255, 255, 255, 0.9); }
+    @keyframes apple-pulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(48, 209, 88, 0.35), 0 20px 45px -6px rgba(48, 209, 88, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.4); }
+      50% { box-shadow: 0 0 0 3.5px rgba(48, 209, 88, 0.55), 0 26px 60px -4px rgba(48, 209, 88, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.6); }
     }
 
-    /* Port Handle Jewels - fully visible circular jewels centered on the node border */
+    /* Apple Port Handle Jewels */
     .port-handle {
       position: absolute;
       top: 50%;
       transform: translateY(-50%);
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
-      border: 2px solid rgba(10, 14, 24, 0.95);
+      border: 2px solid rgba(18, 23, 36, 0.95);
       box-shadow: 
-        0 2px 8px rgba(0,0,0,0.65),
-        inset 0 1px 1.5px rgba(255,255,255,0.7);
-      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease;
+        0 1px 4px rgba(0,0,0,0.4),
+        inset 0 1px 1px rgba(255,255,255,0.6);
+      transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease;
       z-index: 25;
     }
     .port-handle:hover {
-      transform: translateY(-50%) scale(1.4);
+      transform: translateY(-50%) scale(1.35);
       box-shadow: 
-        0 0 14px currentColor,
-        inset 0 1px 2px rgba(255,255,255,0.9);
+        0 0 10px rgba(255, 255, 255, 0.6),
+        inset 0 1px 1.5px rgba(255,255,255,0.9);
       z-index: 30;
     }
 
@@ -195,9 +206,9 @@
       animation: pulse-flow 0.8s linear infinite;
     }
 
-    /* Glisse Segmented Control */
+    /* Apple Segmented Control */
     .lg-segmented {
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.25);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       padding: 3px;
@@ -207,11 +218,11 @@
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .lg-segmented-btn.active {
-      background: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.14);
       backdrop-filter: blur(12px);
       color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.35);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.25);
     }
 
     /* Backward compatibility aliases */
@@ -249,73 +260,73 @@
     <div class="aurora-blob blob-4"></div>
   </div>
 
-  <!-- FLOATING TOP NAVIGATION -->
+  <!-- FLOATING TOP NAVIGATION (Apple Toolbar) -->
   <header class="relative z-30 px-5 pt-3 pb-2 shrink-0 flex items-center justify-between">
-    <!-- Left: Brand / Logo Island -->
-    <div class="lg-button lg-glass px-4 py-2 flex items-center space-x-3 shadow-lg">
-      <div class="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/30">
-        <i class="fa-solid fa-shield-halved text-xs"></i>
+    <!-- Left: Brand Island -->
+    <div class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2.5 rounded-2xl shadow-md">
+      <div class="w-6 h-6 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white shadow-sm">
+        <i class="fa-solid fa-shield-halved text-[11px] text-white/90"></i>
       </div>
-      <span class="font-bold text-sm tracking-tight text-white">uncflow</span>
+      <span class="font-semibold text-sm tracking-tight text-white">uncflow</span>
     </div>
 
-    <!-- Center: Workflow Name & Spotlight Search Pill -->
+    <!-- Center: Workflow Name & Quick Spotlight Pill -->
     <div class="hidden lg:flex items-center space-x-2">
       <!-- Workflow Name Pill -->
-      <div class="lg-button lg-glass px-4 py-2 flex items-center space-x-2 text-xs">
-        <i class="fa-solid fa-diagram-project text-cyan-400 text-xs"></i>
+      <div class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2 text-xs rounded-2xl">
+        <i class="fa-solid fa-diagram-project text-xs text-white/70"></i>
         <span id="current-workflow-name" class="font-medium text-gray-200">Комплексный аудит безопасности</span>
       </div>
 
       <!-- Quick Spotlight Launcher Pill -->
-      <button onclick="openSpotlight()" class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2 text-xs text-gray-300 hover:text-white group transition">
-        <i class="fa-solid fa-plus text-cyan-400 text-xs group-hover:scale-110 transition"></i>
+      <button onclick="openSpotlight()" class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2 text-xs text-gray-300 hover:text-white rounded-2xl transition">
+        <i class="fa-solid fa-plus text-xs text-white/70"></i>
         <span class="text-gray-300">Добавить блок...</span>
-        <kbd class="px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-mono border border-white/20 text-gray-400">Ctrl+Пробел</kbd>
+        <kbd class="px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-mono border border-white/15 text-gray-400">Ctrl+Пробел</kbd>
       </button>
     </div>
 
-    <!-- Right: Action Pills -->
+    <!-- Right: Apple Tool Action Buttons -->
     <div class="flex items-center space-x-2">
-      <button onclick="openAiModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-purple-300 hover:text-purple-200 flex items-center space-x-1.5 border-purple-500/30">
-        <i class="fa-solid fa-wand-magic-sparkles text-purple-400"></i>
+      <button onclick="openAiModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+        <i class="fa-solid fa-wand-magic-sparkles text-xs text-white/75"></i>
         <span>AI Сценарий</span>
       </button>
 
-      <button onclick="openTemplatesModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5">
-        <i class="fa-solid fa-boxes-stacked text-blue-400"></i>
+      <button onclick="openTemplatesModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+        <i class="fa-solid fa-boxes-stacked text-xs text-white/75"></i>
         <span>Шаблоны</span>
       </button>
 
-      <button onclick="openSaveTemplateModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-emerald-300 hover:text-emerald-100 flex items-center space-x-1.5 border-emerald-500/30" title="Сохранить текущий сценарий в PostgreSQL">
-        <i class="fa-solid fa-floppy-disk text-emerald-400"></i>
-        <span>Сохранить шаблон</span>
+      <button onclick="openSaveTemplateModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl" title="Сохранить текущий сценарий в PostgreSQL">
+        <i class="fa-solid fa-floppy-disk text-xs text-white/75"></i>
+        <span>Сохранить</span>
       </button>
 
-      <button onclick="openCicdModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5">
-        <i class="fa-solid fa-code-branch text-emerald-400"></i>
+      <button onclick="openCicdModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+        <i class="fa-solid fa-code-branch text-xs text-white/75"></i>
         <span>CI/CD</span>
       </button>
 
-      <button id="header-report-btn" onclick="openReportModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5">
-        <i class="fa-solid fa-file-shield text-cyan-400"></i>
+      <button id="header-report-btn" onclick="openReportModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+        <i class="fa-solid fa-file-shield text-xs text-white/75"></i>
         <span>Отчёт</span>
       </button>
 
-      <button onclick="openHistoryModal()" data-icon="only" class="lg-button lg-glass p-2 w-9 h-9 flex items-center justify-center text-xs text-gray-300 hover:text-white" title="История запусков">
-        <i class="fa-solid fa-clock-rotate-left"></i>
+      <button onclick="openHistoryModal()" data-icon="only" class="lg-button lg-glass p-2 w-9 h-9 flex items-center justify-center text-xs text-gray-300 hover:text-white rounded-2xl" title="История запусков">
+        <i class="fa-solid fa-clock-rotate-left text-xs text-white/75"></i>
       </button>
 
       <!-- User Profile / Auth Button Container -->
       <div id="user-header-container">
-        <button id="header-auth-btn" onclick="openAuthModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-cyan-300 hover:text-white flex items-center space-x-1.5 border-cyan-500/30">
-          <i class="fa-solid fa-user text-cyan-400"></i>
+        <button id="header-auth-btn" onclick="openAuthModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+          <i class="fa-solid fa-user text-xs text-white/75"></i>
           <span>Войти</span>
         </button>
       </div>
 
-      <!-- Run Button (Glisse filled variant) -->
-      <button id="run-workflow-btn" onclick="executeCurrentWorkflow()" data-variant="filled" class="lg-button lg-glass px-4 py-2 text-xs font-semibold text-white flex items-center space-x-2">
+      <!-- Run Button (Apple Primary Action) -->
+      <button id="run-workflow-btn" onclick="executeCurrentWorkflow()" class="lg-button px-4 py-2 text-xs font-semibold text-white flex items-center space-x-2 rounded-2xl bg-[#007AFF] hover:bg-[#0071E3] active:scale-95 shadow-lg shadow-blue-900/30 border border-blue-400/30 transition cursor-pointer">
         <i class="fa-solid fa-play text-xs"></i>
         <span>Запустить</span>
       </button>
@@ -325,18 +336,18 @@
   <!-- MAIN WORKSPACE -->
   <div class="flex-1 flex overflow-hidden relative z-10 p-3 pt-1 gap-3">
 
-    <!-- FLOATING LEFT PALETTE: LIQUID GLASS DRAWER (Convenient Node Picker) -->
+    <!-- FLOATING LEFT PALETTE: LIQUID GLASS DRAWER -->
     <aside id="palette-drawer" class="lg-glass w-72 rounded-3xl flex flex-col z-20 shrink-0 shadow-2xl transition-all duration-300 relative">
       <!-- Header -->
       <div class="p-3.5 pb-2.5 border-b border-white/10 flex items-center justify-between">
         <div class="flex items-center space-x-2">
-          <div class="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs border border-cyan-500/30">
-            <i class="fa-solid fa-shapes"></i>
+          <div class="w-6 h-6 rounded-lg bg-white/10 text-white/80 flex items-center justify-center text-xs border border-white/10">
+            <i class="fa-solid fa-shapes text-[11px]"></i>
           </div>
-          <span class="font-bold text-xs text-white uppercase tracking-wider">Блоки и Ноды</span>
+          <span class="font-semibold text-xs text-white uppercase tracking-wider">Блоки</span>
         </div>
-        <button onclick="openSpotlight()" class="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center space-x-1 lg-button lg-glass px-2.5 py-1">
-          <i class="fa-solid fa-magnifying-glass text-[9px]"></i>
+        <button onclick="openSpotlight()" class="text-[11px] text-gray-300 hover:text-white flex items-center space-x-1 lg-button lg-glass px-2.5 py-1 rounded-xl">
+          <i class="fa-solid fa-magnifying-glass text-[9px] text-white/70"></i>
           <span>Поиск</span>
         </button>
       </div>
@@ -345,16 +356,17 @@
       <div class="p-3 space-y-2.5 border-b border-white/10">
         <div class="relative">
           <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400 text-xs"></i>
-          <input type="text" id="node-search" placeholder="Быстрый поиск блоков..." oninput="filterPalette()"
-                 class="w-full bg-white/5 text-xs rounded-xl pl-8 pr-3 py-2 border border-white/15 focus:outline-none focus:border-cyan-400/80 text-gray-100 placeholder-gray-400 backdrop-blur-md">
+          <input type="text" id="node-search" placeholder="Поиск блоков..." oninput="filterPalette()"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                 class="w-full bg-black/25 text-xs rounded-xl pl-8 pr-3 py-2 border border-white/15 focus:outline-none focus:border-white/35 text-gray-100 placeholder-gray-400 backdrop-blur-md">
         </div>
 
-        <!-- Category Segmented Control (Glisse style) -->
+        <!-- Category Segmented Control (Apple style) -->
         <div class="lg-segmented flex items-center space-x-1 text-[11px]">
           <button onclick="setPaletteCategory('all')" id="cat-btn-all" class="lg-segmented-btn active flex-1 py-1 text-center font-medium">Все</button>
           <button onclick="setPaletteCategory('Sources')" id="cat-btn-Sources" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Входы</button>
           <button onclick="setPaletteCategory('Scanners')" id="cat-btn-Scanners" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Аудит</button>
-          <button onclick="setPaletteCategory('AI')" id="cat-btn-AI" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-emerald-400 hover:text-emerald-300 font-semibold">AI</button>
+          <button onclick="setPaletteCategory('AI')" id="cat-btn-AI" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">AI</button>
           <button onclick="setPaletteCategory('Logic')" id="cat-btn-Logic" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Логика</button>
         </div>
       </div>
@@ -366,7 +378,7 @@
     </aside>
 
     <!-- CENTER CANVAS (WITH PAN & ZOOM) -->
-    <main class="flex-1 relative canvas-grid overflow-hidden rounded-3xl liquid-glass border border-white/10 cursor-grab active:cursor-grabbing" id="canvas-container">
+    <main class="flex-1 relative canvas-grid overflow-hidden rounded-3xl border border-white/10 cursor-grab active:cursor-grabbing backdrop-blur-sm" id="canvas-container">
       
       <!-- Transform Viewport: scales and translates together -->
       <div id="canvas-viewport" class="absolute inset-0" style="transform-origin: 0 0; transform: translate(80px, 80px) scale(0.95);">
@@ -453,7 +465,7 @@
     <aside id="inspector-panel" class="lg-glass w-80 rounded-3xl flex flex-col z-20 shrink-0 shadow-2xl transition-all duration-300">
       <div class="p-3.5 border-b border-white/10 flex items-center justify-between">
         <div class="flex items-center space-x-2.5">
-          <div id="inspector-node-icon" class="w-7 h-7 rounded-full flex items-center justify-center text-xs bg-white/10 text-emerald-400 border border-white/15">
+          <div id="inspector-node-icon" class="w-7 h-7 rounded-xl flex items-center justify-center text-xs bg-white/10 text-white/90 border border-white/15 shadow-sm">
             <i class="fa-solid fa-cube"></i>
           </div>
           <span id="inspector-node-title" class="font-bold text-xs text-white truncate max-w-[180px]">Инспектор блока</span>
@@ -616,35 +628,35 @@
       </div>
 
       <!-- Tab 1: Login Form -->
-      <form id="auth-form-login" onsubmit="event.preventDefault(); submitEmailLogin();" class="space-y-3 text-xs">
+      <form id="auth-form-login" onsubmit="event.preventDefault(); submitEmailLogin();" class="space-y-3 text-xs" autocomplete="off">
         <div>
           <label class="block text-gray-300 font-semibold mb-1">Email</label>
-          <input type="email" id="login-email" required placeholder="developer@bank.ru" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+          <input type="email" id="login-email" required placeholder="" autocomplete="off" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div>
           <label class="block text-gray-300 font-semibold mb-1">Пароль</label>
-          <input type="password" id="login-password" required placeholder="••••••••" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+          <input type="password" id="login-password" required placeholder="" autocomplete="current-password" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div id="login-error" class="hidden text-[11px] text-red-400 p-2 bg-red-950/40 border border-red-500/30 rounded-xl"></div>
         <button type="submit" class="liquid-btn-primary w-full py-2.5 rounded-xl text-white font-semibold flex items-center justify-center space-x-2 mt-2">
-          <i class="fa-solid fa-right-to-bracket"></i>
+          <i class="fa-solid fa-right-to-bracket text-xs text-white/80"></i>
           <span>Войти в систему</span>
         </button>
       </form>
 
       <!-- Tab 2: Register Form -->
-      <form id="auth-form-register" onsubmit="event.preventDefault(); submitEmailRegister();" class="hidden space-y-3 text-xs">
+      <form id="auth-form-register" onsubmit="event.preventDefault(); submitEmailRegister();" class="hidden space-y-3 text-xs" autocomplete="off">
         <div>
           <label class="block text-gray-300 font-semibold mb-1">Ваше имя / Никнейм</label>
-          <input type="text" id="register-name" required placeholder="Александр Безопасник" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+          <input type="text" id="register-name" required placeholder="" autocomplete="off" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div>
           <label class="block text-gray-300 font-semibold mb-1">Email</label>
-          <input type="email" id="register-email" required placeholder="alex@bank.ru" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+          <input type="email" id="register-email" required placeholder="" autocomplete="off" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div>
           <label class="block text-gray-300 font-semibold mb-1">Пароль (от 4 символов)</label>
-          <input type="password" id="register-password" required minlength="4" placeholder="••••••••" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400">
+          <input type="password" id="register-password" required minlength="4" placeholder="" autocomplete="new-password" class="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-white/35">
         </div>
         <div id="register-error" class="hidden text-[11px] text-red-400 p-2 bg-red-950/40 border border-red-500/30 rounded-xl"></div>
         <button type="submit" class="liquid-btn-primary w-full py-2.5 rounded-xl text-white font-semibold flex items-center justify-center space-x-2 mt-2">
@@ -1803,27 +1815,40 @@
         const isSelected = idx === spotlightSelectedIndex;
         const inCount = def.inputs?.length || 0;
         const outCount = def.outputs?.length || 0;
+        const iconClass = def.icon === 'Clock' ? 'clock' :
+          (def.icon === 'Send' ? 'paper-plane' :
+          (def.icon === 'Sparkles' ? 'wand-magic-sparkles' :
+          (def.icon === 'Layers' ? 'layer-group' :
+          (def.icon === 'GitBranch' ? 'code-branch' :
+          (def.icon === 'GitPullRequest' ? 'code-pull-request' :
+          (def.icon === 'KeyRound' ? 'key' :
+          (def.icon === 'PackageSearch' ? 'box-open' :
+          (def.icon === 'Code2' ? 'code' :
+          (def.icon === 'FileText' ? 'file-lines' :
+          (def.icon === 'Database' ? 'database' :
+          (def.icon === 'PlayCircle' ? 'circle-play' : 'cube')))))))))));
+
         return `
           <div onclick="addNodeFromSpotlight('${def.type}')"
                onmouseenter="spotlightSelectedIndex = ${idx}; renderSpotlightResults();"
                class="p-3 rounded-2xl flex items-center justify-between cursor-pointer transition ${
-                 isSelected ? 'bg-white/15 border border-cyan-400/50 shadow-lg shadow-cyan-500/10' : 'bg-white/5 hover:bg-white/10 border border-white/10'
+                 isSelected ? 'bg-white/15 border border-white/25 shadow-md' : 'bg-white/5 hover:bg-white/10 border border-white/10'
                }">
             <div class="flex items-center space-x-3 truncate">
-              <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-md" style="background-color: ${def.color || '#3b82f6'};">
-                <i class="fa-solid fa-${def.icon === 'Layers' ? 'layer-group' : (def.icon === 'GitBranch' ? 'code-branch' : (def.icon === 'KeyRound' ? 'key' : (def.icon === 'PackageSearch' ? 'box-open' : 'cube')))} text-sm"></i>
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center bg-white/10 text-white/90 border border-white/10 shrink-0 shadow-sm">
+                <i class="fa-solid fa-${iconClass} text-xs text-white/80"></i>
               </div>
               <div class="truncate">
-                <div class="font-bold text-xs text-white flex items-center space-x-2">
+                <div class="font-semibold text-xs text-white flex items-center space-x-2">
                   <span>${def.title}</span>
-                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/40 text-gray-400 border border-white/10">${def.category || 'Блок'}</span>
+                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-white/10 text-gray-300 border border-white/10">${def.category || 'Блок'}</span>
                 </div>
                 <div class="text-[11px] text-gray-400 truncate max-w-md">${def.description || def.type}</div>
               </div>
             </div>
             <div class="flex items-center space-x-2 shrink-0 pl-2">
               <span class="text-[10px] text-gray-400 font-mono">${inCount} вх · ${outCount} вых</span>
-              <button class="liquid-pill px-2.5 py-1 text-xs text-cyan-300 font-semibold flex items-center space-x-1">
+              <button class="lg-button px-2.5 py-1 text-xs text-white font-medium flex items-center space-x-1 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10">
                 <i class="fa-solid fa-plus text-[10px]"></i>
                 <span>Добавить</span>
               </button>
@@ -1959,13 +1984,13 @@
 
           item.innerHTML = `
             <div class="flex items-center space-x-2.5 truncate">
-              <div class="w-6 h-6 rounded-lg shrink-0 flex items-center justify-center text-white text-[10px] shadow" style="background-color: ${node.color || '#3b82f6'}">
-                <i class="fa-solid fa-${iconClass}"></i>
+              <div class="w-6 h-6 rounded-lg shrink-0 flex items-center justify-center bg-white/10 text-white/90 border border-white/10 shadow-sm">
+                <i class="fa-solid fa-${iconClass} text-[11px] text-white/80"></i>
               </div>
-              <span class="text-xs font-semibold text-gray-200 group-hover:text-white truncate block">${node.title}</span>
+              <span class="text-xs font-medium text-gray-200 group-hover:text-white truncate block">${node.title}</span>
             </div>
-            <button title="Добавить на холст" class="opacity-0 group-hover:opacity-100 p-1 w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40 text-[10px] flex items-center justify-center transition shrink-0">
-              <i class="fa-solid fa-plus"></i>
+            <button title="Добавить на холст" class="opacity-0 group-hover:opacity-100 p-1 w-5 h-5 rounded-full bg-white/15 text-white hover:bg-white/25 text-[10px] flex items-center justify-center transition shrink-0">
+              <i class="fa-solid fa-plus text-[9px]"></i>
             </button>
           `;
 
@@ -2020,19 +2045,19 @@
         let countBadge = '';
 
         if (status === 'running') {
-          statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center space-x-1 shrink-0"><i class="fa-solid fa-spinner fa-spin text-[9px]"></i><span>Анализ...</span></span>';
+          statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/15 flex items-center space-x-1 shrink-0"><i class="fa-solid fa-spinner fa-spin text-[9px]"></i><span>Анализ...</span></span>';
         } else if (status === 'completed') {
-          statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center space-x-1 shrink-0"><i class="fa-solid fa-check text-[9px]"></i><span>Готово</span></span>';
+          statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1 shrink-0"><i class="fa-solid fa-check text-[9px]"></i><span>Готово</span></span>';
         } else if (status === 'failed') {
-          statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 flex items-center space-x-1 shrink-0"><i class="fa-solid fa-triangle-exclamation text-[9px]"></i><span>Ошибка</span></span>';
+          statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 flex items-center space-x-1 shrink-0"><i class="fa-solid fa-triangle-exclamation text-[9px]"></i><span>Ошибка</span></span>';
         }
 
         if (output && output.count !== undefined) {
-          countBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/40 text-emerald-300 border border-emerald-500/30">Найдено: ${output.count}</span>`;
+          countBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/10">Найдено: ${output.count}</span>`;
         } else if (output && output.totalCount !== undefined) {
-          countBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/40 text-cyan-300 border border-cyan-500/30">Всего: ${output.totalCount}</span>`;
+          countBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/10">Всего: ${output.totalCount}</span>`;
         } else if (output && output.findingsCount !== undefined) {
-          countBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/40 text-cyan-300 border border-cyan-500/30">В отчёте: ${output.findingsCount}</span>`;
+          countBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/10">В отчёте: ${output.findingsCount}</span>`;
         }
 
         let inputs = [...(def.inputs || [])];
@@ -2077,19 +2102,19 @@
           const inHandle = inPort ? `
             <div class="flex items-center space-x-2 cursor-crosshair group/port"
                  onmouseup="onPortMouseUp(event, '${node.id}', '${inPort.id}', false)">
-              <div class="port-handle absolute -left-[7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full ${
+              <div class="port-handle absolute -left-[6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full ${
                 hasIncoming
-                  ? 'bg-cyan-400 ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/50 cursor-crosshair'
+                  ? 'bg-[#007AFF] ring-2 ring-[#007AFF]/40 cursor-crosshair'
                   : (isGhost
-                      ? 'border border-dashed border-cyan-400/50 bg-cyan-950/30 text-cyan-300 flex items-center justify-center opacity-50 hover:opacity-100 hover:scale-110 hover:border-cyan-300 transition-all cursor-crosshair'
-                      : 'bg-blue-500 cursor-crosshair')
+                      ? 'border border-dashed border-white/40 bg-white/5 text-white/60 flex items-center justify-center opacity-40 hover:opacity-100 hover:scale-110 transition cursor-crosshair'
+                      : 'bg-zinc-400 cursor-crosshair')
               } shrink-0 transition"
                    data-node-id="${node.id}" data-port-id="${inPort.id}" data-is-output="false" data-is-ghost="${isGhost ? 'true' : 'false'}"
                    title="${inPort.label} (${inPort.type})${isGhost ? ' — Присоедините связь, чтобы активировать' : (hasIncoming ? ' — Зажмите для переназначения/отсоединения пути или ПКМ' : ' — Зажмите для соединения')}"
                    onmousedown="onPortMouseDown(event, '${node.id}', '${inPort.id}', false)"
                    onmouseup="onPortMouseUp(event, '${node.id}', '${inPort.id}', false)"
                    oncontextmenu="onPortContextMenu(event, '${node.id}', '${inPort.id}', false)">
-                ${isGhost ? '<i class="fa-solid fa-plus text-[7px] leading-none text-cyan-300/80 pointer-events-none"></i>' : ''}
+                ${isGhost ? '<i class="fa-solid fa-plus text-[6px] leading-none text-white/80 pointer-events-none"></i>' : ''}
               </div>
               <span class="text-[11px] ${isGhost ? 'text-gray-500 italic group-hover/port:text-gray-300' : 'text-gray-300 font-medium'} select-none truncate pl-1">${inPort.label}</span>
             </div>
@@ -2099,7 +2124,7 @@
             <div class="flex items-center space-x-2 justify-end cursor-crosshair"
                  onmouseup="onPortMouseUp(event, '${node.id}', '${outPort.id}', true)">
               <span class="text-[11px] text-gray-300 font-medium select-none truncate pr-1">${outPort.label}</span>
-              <div class="port-handle absolute -right-[7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full ${hasOutgoing ? 'bg-emerald-400 ring-2 ring-emerald-400/60 shadow-lg shadow-emerald-500/50' : 'bg-emerald-500'} cursor-crosshair shrink-0 transition"
+              <div class="port-handle absolute -right-[6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full ${hasOutgoing ? 'bg-[#30D158] ring-2 ring-[#30D158]/40' : 'bg-zinc-400'} cursor-crosshair shrink-0 transition"
                    data-node-id="${node.id}" data-port-id="${outPort.id}" data-is-output="true"
                    title="${outPort.label} (${outPort.type})${hasOutgoing ? ' — Зажмите для создания пути или ПКМ для отсоединения' : ' — Зажмите для создания пути'}"
                    onmousedown="onPortMouseDown(event, '${node.id}', '${outPort.id}', true)"
@@ -2116,9 +2141,22 @@
           `;
         }
 
+        const iconClass = def.icon === 'Clock' ? 'clock' :
+          (def.icon === 'Send' ? 'paper-plane' :
+          (def.icon === 'Sparkles' ? 'wand-magic-sparkles' :
+          (def.icon === 'Layers' ? 'layer-group' :
+          (def.icon === 'GitBranch' ? 'code-branch' :
+          (def.icon === 'GitPullRequest' ? 'code-pull-request' :
+          (def.icon === 'KeyRound' ? 'key' :
+          (def.icon === 'PackageSearch' ? 'box-open' :
+          (def.icon === 'Code2' ? 'code' :
+          (def.icon === 'FileText' ? 'file-lines' :
+          (def.icon === 'Database' ? 'database' :
+          (def.icon === 'PlayCircle' ? 'circle-play' : 'cube')))))))))));
+
         const el = document.createElement('div');
         el.id = 'node-el-' + node.id;
-        el.className = `absolute liquid-node lg-glass pointer-events-auto select-none ${
+        el.className = `absolute liquid-node pointer-events-auto select-none ${
           isSelected ? 'selected' : ''
         } ${status === 'running' ? 'running' : ''}`;
         el.style.width = NODE_WIDTH + 'px';
@@ -2127,21 +2165,23 @@
 
         el.innerHTML = `
           <!-- Node Header -->
-          <div class="node-header flex items-center justify-between p-3.5 border-b border-white/10 bg-white/5 rounded-t-[32px] cursor-move select-none">
+          <div class="node-header flex items-center justify-between p-3 border-b border-white/10 bg-white/[0.04] rounded-t-[24px] cursor-move select-none">
             <div class="flex items-center space-x-2.5 truncate">
-              <div class="w-4 h-4 rounded-full shrink-0 shadow-sm" style="background-color: ${def.color || '#10b981'}"></div>
-              <span class="font-bold text-xs text-white truncate tracking-tight">${node.name || def.title}</span>
+              <div class="w-5 h-5 rounded-lg flex items-center justify-center bg-white/10 text-white/90 border border-white/10 shrink-0 shadow-sm">
+                <i class="fa-solid fa-${iconClass} text-[10px]"></i>
+              </div>
+              <span class="font-semibold text-xs text-white truncate tracking-tight">${node.name || def.title}</span>
             </div>
             ${statusBadge}
           </div>
 
           <!-- Ports Area -->
-          <div class="py-2.5 space-y-0.5">
+          <div class="py-2 space-y-0.5">
             ${portsHtml}
           </div>
 
           <!-- Node Footer -->
-          <div class="px-4 py-2 border-t border-white/10 bg-black/20 rounded-b-[32px] flex items-center justify-between text-[10px] text-gray-400 select-none">
+          <div class="px-3.5 py-1.5 border-t border-white/10 bg-black/15 rounded-b-[24px] flex items-center justify-between text-[10px] text-gray-400 select-none">
             <span>${def.category || 'Блок'}</span>
             ${countBadge}
           </div>
@@ -2638,7 +2678,9 @@
           <label class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">Название блока</label>
           <input type="text" value="${escapeHtml(node.name || def?.title || '')}"
                  oninput="updateNodeName('${node.id}', this.value)"
-                 class="w-full bg-white/5 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-cyan-400 text-gray-100 font-medium">
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                 data-lpignore="true" data-form-type="other" name="unc_name_${node.id}"
+                 class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium">
         </div>
       `;
 
@@ -2662,18 +2704,19 @@
           const val = node.settings[s.name] !== undefined ? node.settings[s.name] : (s.default !== undefined ? s.default : '');
           const row = document.createElement('div');
           row.className = 'space-y-1';
+          const fieldName = `unc_${node.id}_${s.name}`;
 
           let inputHtml = '';
           if (s.type === 'select') {
             const opts = (s.options || []).map(o => `
-              <option value="${o.value}" ${String(val) === String(o.value) ? 'selected' : ''}>${o.label}</option>
+              <option value="${o.value}" ${String(val) === String(o.value) ? 'selected' : ''} class="bg-[#161a26] text-white">${o.label}</option>
             `).join('');
             const onchange = (s.name === 'channel')
               ? `updateNodeSetting('${node.id}', '${s.name}', this.value); onChannelTypeChanged('${node.id}', this.value);`
               : `updateNodeSetting('${node.id}', '${s.name}', this.value)`;
             inputHtml = `
-              <select onchange="${onchange}"
-                      class="w-full bg-black/60 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-cyan-400 text-gray-100 font-medium cursor-pointer">
+              <select name="${fieldName}" onchange="${onchange}"
+                      class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium cursor-pointer">
                 ${opts}
               </select>
             `;
@@ -2681,9 +2724,9 @@
             const isChecked = Boolean(val);
             inputHtml = `
               <label class="flex items-center space-x-2.5 p-2 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition cursor-pointer">
-                <input type="checkbox" ${isChecked ? 'checked' : ''}
+                <input type="checkbox" ${isChecked ? 'checked' : ''} name="${fieldName}"
                        onchange="updateNodeSetting('${node.id}', '${s.name}', this.checked)"
-                       class="rounded w-4 h-4 text-cyan-500 focus:ring-0 bg-black/40 border-white/20">
+                       class="rounded w-4 h-4 text-blue-500 focus:ring-0 bg-black/40 border-white/20">
                 <span class="text-xs text-gray-200 font-medium select-none">${s.label}</span>
               </label>
             `;
@@ -2691,10 +2734,11 @@
             const fieldId = `field_${node.id}_${s.name}`;
             inputHtml = `
               <div class="relative">
-                <input id="${fieldId}" type="password" value="${escapeHtml(String(val))}"
+                <input id="${fieldId}" name="${fieldName}" type="password" value="${escapeHtml(String(val))}"
                        oninput="updateNodeSetting('${node.id}', '${s.name}', this.value)"
-                       placeholder="${s.description || 'Введите значение...'}"
-                       class="w-full bg-white/5 text-xs rounded-xl pl-3 pr-9 py-2 border border-white/15 focus:outline-none focus:border-cyan-400 text-gray-100 font-mono">
+                       autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                       data-lpignore="true" data-form-type="other"
+                       class="w-full bg-black/30 text-xs rounded-xl pl-3 pr-9 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-mono">
                 <button type="button" onclick="togglePasswordVisibility('${fieldId}', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1 rounded transition" title="Показать/скрыть">
                   <i class="fa-solid fa-eye text-xs"></i>
                 </button>
@@ -2702,15 +2746,19 @@
             `;
           } else if (s.type === 'number') {
             inputHtml = `
-              <input type="number" step="any" value="${val}"
+              <input type="number" step="any" value="${val}" name="${fieldName}"
                      oninput="updateNodeSetting('${node.id}', '${s.name}', Number(this.value))"
-                     class="w-full bg-white/5 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-cyan-400 text-gray-100 font-medium">
+                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                     data-lpignore="true" data-form-type="other"
+                     class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium">
             `;
           } else {
             inputHtml = `
-              <input type="text" value="${escapeHtml(String(val))}"
+              <input type="text" value="${escapeHtml(String(val))}" name="${fieldName}"
                      oninput="updateNodeSetting('${node.id}', '${s.name}', this.value)"
-                     class="w-full bg-white/5 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-cyan-400 text-gray-100 font-medium">
+                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                     data-lpignore="true" data-form-type="other"
+                     class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-medium">
             `;
           }
 
@@ -2720,12 +2768,10 @@
                 <span>${s.label}</span>
               </label>
               ${inputHtml}
-              ${s.description ? `<p class="text-[10px] text-gray-400 mt-0.5 leading-snug">${s.description}</p>` : ''}
             `;
           } else {
             row.innerHTML = `
               ${inputHtml}
-              ${s.description ? `<p class="text-[10px] text-gray-400 mt-0.5 pl-6 leading-snug">${s.description}</p>` : ''}
             `;
           }
 
@@ -2968,30 +3014,30 @@
       if (node.type === 'trigger.schedule' || node.type === 'trigger.cron') {
         const cronExpr = node.settings?.cron || '0 14 * * *';
         const box = document.createElement('div');
-        box.className = 'p-3.5 rounded-2xl bg-purple-950/20 border border-purple-500/30 space-y-2.5 text-xs mt-3';
+        box.className = 'p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2.5 text-xs mt-3';
         box.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-clock text-purple-400"></i>
-              <span class="font-bold text-white text-[11px] uppercase tracking-wider">Автоматический запуск</span>
+              <i class="fa-solid fa-clock text-white/80"></i>
+              <span class="font-medium text-white text-xs">Запуск по расписанию</span>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono">Активен</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">Активен</span>
           </div>
           <div class="text-[11px] text-gray-300" id="schedule-desc-${node.id}">
-            <i class="fa-solid fa-spinner fa-spin mr-1"></i>Расчёт времени запуска...
+            Расчёт времени запуска...
           </div>
           <div class="space-y-1">
-            <span class="text-[10px] text-gray-400 uppercase font-semibold block">Быстрый выбор:</span>
+            <span class="text-[10px] text-gray-400 font-medium block">Быстрый выбор:</span>
             <div class="flex flex-wrap gap-1">
-              <button type="button" onclick="setSchedulePreset('${node.id}', '*/15 * * * *', 'every_15_min')" class="liquid-pill px-2 py-0.5 text-[10px] text-purple-300 hover:text-white">Каждые 15 мин</button>
-              <button type="button" onclick="setSchedulePreset('${node.id}', '0 * * * *', 'every_hour')" class="liquid-pill px-2 py-0.5 text-[10px] text-purple-300 hover:text-white">Каждый час</button>
-              <button type="button" onclick="setSchedulePreset('${node.id}', '0 14 * * *', 'every_day', '14:00')" class="liquid-pill px-2 py-0.5 text-[10px] text-purple-300 hover:text-white">В 14:00 каждый день</button>
-              <button type="button" onclick="setSchedulePreset('${node.id}', '0 2 * * *', 'every_day', '02:00')" class="liquid-pill px-2 py-0.5 text-[10px] text-purple-300 hover:text-white">Ночью в 02:00</button>
+              <button type="button" onclick="setSchedulePreset('${node.id}', '*/15 * * * *', 'every_15_min')" class="px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-gray-300 hover:text-white transition">Каждые 15 мин</button>
+              <button type="button" onclick="setSchedulePreset('${node.id}', '0 * * * *', 'every_hour')" class="px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-gray-300 hover:text-white transition">Каждый час</button>
+              <button type="button" onclick="setSchedulePreset('${node.id}', '0 14 * * *', 'every_day', '14:00')" class="px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-gray-300 hover:text-white transition">Каждый день в 14:00</button>
+              <button type="button" onclick="setSchedulePreset('${node.id}', '0 2 * * *', 'every_day', '02:00')" class="px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-gray-300 hover:text-white transition">Ночью в 02:00</button>
             </div>
           </div>
           <div class="pt-1">
-            <button type="button" onclick="testScheduleTrigger('${node.id}')" class="liquid-btn-primary w-full py-1.5 text-[11px] font-semibold text-white flex items-center justify-center space-x-1.5 cursor-pointer">
-              <i class="fa-solid fa-bolt"></i>
+            <button type="button" onclick="testScheduleTrigger('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-1.5 transition cursor-pointer">
+              <i class="fa-solid fa-play text-xs text-white/80"></i>
               <span>Запустить проверку сейчас</span>
             </button>
           </div>
@@ -3004,26 +3050,26 @@
       if (node.type === 'trigger.webhook') {
         const webhookUrl = `${window.location.origin}/api/webhook/trigger`;
         const box = document.createElement('div');
-        box.className = 'p-3.5 rounded-2xl bg-pink-950/20 border border-pink-500/30 space-y-2.5 text-xs mt-3';
+        box.className = 'p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2.5 text-xs mt-3';
         box.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-satellite-dish text-pink-400"></i>
-              <span class="font-bold text-white text-[11px] uppercase tracking-wider">Приёмник Webhook</span>
+              <i class="fa-solid fa-satellite-dish text-white/80"></i>
+              <span class="font-medium text-white text-xs">Приёмник Webhook</span>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-mono">Ready</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">Ready</span>
           </div>
-          <p class="text-[11px] text-gray-300">Укажите этот URL в GitHub / GitLab / GitVerse в настройках Webhooks:</p>
+          <p class="text-[11px] text-gray-300">URL для GitHub / GitLab / GitVerse Webhooks:</p>
           <div class="flex items-center space-x-1.5">
             <input type="text" readonly value="${webhookUrl}" id="webhook-copy-url-${node.id}"
-                   class="flex-1 bg-black/50 text-[11px] font-mono rounded-xl px-2.5 py-1.5 border border-white/15 text-pink-200 truncate">
-            <button type="button" onclick="copyWebhookUrl('${node.id}')" class="liquid-pill px-2.5 py-1.5 text-[11px] text-pink-300 hover:text-white shrink-0" title="Копировать URL">
+                   class="flex-1 bg-black/30 text-[11px] font-mono rounded-xl px-2.5 py-1.5 border border-white/15 text-gray-200 truncate">
+            <button type="button" onclick="copyWebhookUrl('${node.id}')" class="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 text-[11px] shrink-0" title="Копировать URL">
               <i class="fa-solid fa-copy"></i>
             </button>
           </div>
           <div class="pt-1">
-            <button type="button" onclick="testSimulateWebhook('${node.id}')" class="w-full py-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-[11px] font-semibold text-white flex items-center justify-center space-x-1.5 transition cursor-pointer">
-              <i class="fa-solid fa-play"></i>
+            <button type="button" onclick="testSimulateWebhook('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-1.5 transition cursor-pointer">
+              <i class="fa-solid fa-play text-xs text-white/80"></i>
               <span>Симулировать входящий Webhook</span>
             </button>
           </div>
@@ -3041,36 +3087,32 @@
         }
 
         const box = document.createElement('div');
-        box.className = 'p-3.5 rounded-2xl bg-sky-950/25 border border-sky-500/30 space-y-3 text-xs mt-3';
+        box.className = 'p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3 text-xs mt-3';
 
         let channelLabel = 'Telegram';
-        let channelColor = 'sky';
         let testBtnHtml = '';
 
         if (activeChannel === 'telegram') {
           channelLabel = 'Telegram';
-          channelColor = 'sky';
           testBtnHtml = `
-            <button type="button" onclick="testTelegramSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-semibold text-white flex items-center justify-center space-x-2 transition cursor-pointer shadow-lg shadow-sky-900/30">
-              <i class="fa-brands fa-telegram text-base"></i>
+            <button type="button" onclick="testTelegramSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
+              <i class="fa-brands fa-telegram text-sm text-white/80"></i>
               <span>Отправить тестовое сообщение в Telegram</span>
             </button>
           `;
         } else if (activeChannel === 'yandex') {
           channelLabel = 'Яндекс Почта';
-          channelColor = 'amber';
           testBtnHtml = `
-            <button type="button" onclick="testYandexSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white flex items-center justify-center space-x-2 transition cursor-pointer shadow-lg shadow-amber-900/30">
-              <i class="fa-solid fa-envelope text-base"></i>
+            <button type="button" onclick="testYandexSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
+              <i class="fa-solid fa-envelope text-sm text-white/80"></i>
               <span>Отправить тестовое письмо (SSL:465)</span>
             </button>
           `;
         } else if (activeChannel === 'webhook') {
           channelLabel = 'Webhook (HTTP POST)';
-          channelColor = 'emerald';
           testBtnHtml = `
-            <button type="button" onclick="testOutgoingWebhook('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white flex items-center justify-center space-x-2 transition cursor-pointer shadow-lg shadow-emerald-900/30">
-              <i class="fa-solid fa-globe text-base"></i>
+            <button type="button" onclick="testOutgoingWebhook('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
+              <i class="fa-solid fa-globe text-sm text-white/80"></i>
               <span>Отправить тестовый Webhook</span>
             </button>
           `;
@@ -3078,16 +3120,10 @@
 
         box.innerHTML = `
           <div class="flex items-center justify-between">
-            <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-paper-plane text-${channelColor}-400"></i>
-              <span class="font-bold text-white text-[11px] uppercase tracking-wider">Канал: ${channelLabel}</span>
-            </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-gray-300 font-mono">.env Auto</span>
+            <span class="font-medium text-white text-xs">Канал: ${channelLabel}</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">.env Auto</span>
           </div>
-          <p class="text-[11px] text-gray-300 leading-snug">
-            Токены и параметры берутся из полей выше либо автоматически считываются из <code class="text-${channelColor}-300">.env</code> при пустых значениях.
-          </p>
-          <div class="pt-1">
+          <div class="pt-0.5">
             ${testBtnHtml}
           </div>
         `;
@@ -3097,17 +3133,17 @@
       // 4. AI Node Helper
       if (node.type === 'ai.explainer' || node.type === 'ai.gigachat') {
         const box = document.createElement('div');
-        box.className = 'p-3.5 rounded-2xl bg-purple-950/20 border border-purple-500/30 space-y-2 text-xs mt-3';
+        box.className = 'p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 text-xs mt-3';
         box.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-wand-magic-sparkles text-purple-400"></i>
-              <span class="font-bold text-white text-[11px] uppercase tracking-wider">Генерация отчёта AI</span>
+              <i class="fa-solid fa-wand-magic-sparkles text-white/80"></i>
+              <span class="font-medium text-white text-xs">Генерация отчёта AI</span>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono">GigaChat-Pro</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">GigaChat-Pro</span>
           </div>
           <p class="text-[11px] text-gray-300 leading-snug">
-            Анализирует уязвимости, определяет вектор атаки и формирует готовый код исправления. Ключ <code class="text-purple-300">GIGACHAT_CREDENTIALS</code> читается из <code class="text-purple-300">.env</code> автоматически.
+            Анализ уязвимостей и рекомендации по исправлению. Ключ автоматически считывается из <code class="text-white/90">.env</code>.
           </p>
         `;
         form.appendChild(box);
