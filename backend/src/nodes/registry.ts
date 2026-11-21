@@ -10,6 +10,7 @@ import type { Finding } from '../types/findings.ts';
 import { SmartSecurityCategorizer, GigaChatClient } from '../ai/security-categorizer.ts';
 import { db } from '../storage/db.ts';
 import { sendYandexMail, formatSecurityEmailHtml } from '../notifications/mailer.ts';
+import { sanitizeFindingForExport, validateSubmissionReport } from '../validators/submission-validator.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -704,35 +705,13 @@ export class NodeRegistry {
         const aiReport = inputs.aiReport;
 
         // 1. Generate Strict Submission JSON according to submission-format.md
-        const cleanFindings = findings.map(f => {
-          const item: any = {
-            category: f.category,
-            path: f.path.replace(/\\/g, '/')
-          };
-
-          if (f.category === 'SECRET' || f.category === 'SAST') {
-            const sf = f as any;
-            item.class = sf.class;
-            item.line = sf.line;
-            if (sf.endLine && sf.endLine !== sf.line) {
-              item.endLine = sf.endLine;
-            }
-          } else if (f.category === 'SCA') {
-            const sca = f as any;
-            item.group = sca.group;
-            item.artifact = sca.artifact;
-            item.version = sca.version;
-            item.advisoryId = sca.advisoryId;
-          }
-
-          if (f.severity) item.severity = f.severity;
-          if (f.description) item.description = f.description;
-          if (f.remediation) item.remediation = f.remediation;
-
-          return item;
-        });
-
-        const submissionJson = JSON.stringify({ findings: cleanFindings }, null, 2);
+        const cleanFindings = findings.map(f => sanitizeFindingForExport(f));
+        const submissionObj = { findings: cleanFindings };
+        const validation = validateSubmissionReport(submissionObj, context?.projectRoot);
+        if (!validation.valid) {
+          console.warn(`[report.dual] Предупреждения валидации отчёта (${validation.errors.length} ошибок):\n${validation.errors.join('\n')}`);
+        }
+        const submissionJson = JSON.stringify(submissionObj, null, 2);
 
         // 2. Generate Human-Readable Markdown Report
         let repoUrl = inputs.repoUrl || (context as any)?.repoUrl || '';
