@@ -1,0 +1,1229 @@
+import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Automatic .env loading
+function loadEnvFile() {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        let val = trimmed.slice(eqIdx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (val) {
+          process.env[key] = val;
+        }
+      }
+    }
+  }
+}
+loadEnvFile();
+
+import { NodeRegistry } from './nodes/registry.ts';
+import { WorkflowEngine } from './engine/workflow-engine.ts';
+import { TemplateCatalog } from './templates/catalog.ts';
+import { CiCdManager } from './cicd/index.ts';
+import { AiWorkflowGenerator } from './ai/workflow-generator.ts';
+import { db, type UserProfile } from './storage/db.ts';
+import { SecretVault } from './storage/crypto.ts';
+import { WorkflowScheduler, CronParser } from './engine/scheduler.ts';
+import { sendYandexMail } from './notifications/mailer.ts';
+import type { WorkflowGraph, WorkflowExecutionEvent } from './engine/types.ts';
+
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
+
+const registry = new NodeRegistry();
+const engine = new WorkflowEngine(registry);
+const templates = new TemplateCatalog();
+const scheduler = new WorkflowScheduler(engine, templates, db, (event) => broadcastEvent(event));
+
+// In-memory run history (kept in sync with PostgreSQL)
+const runHistory: any[] = [];
+
+// SSE client connections for real-time live events
+const sseClients = new Set<http.ServerResponse>();
+
+const server = http.createServer(async (req, res) => {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const pathname = url.pathname;
+
+  try {
+    // Serve Web UI Frontend & Static Assets (e.g. /glisse.css, /index.html)
+    if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/' || !pathname.startsWith('/api/'))) {
+      const publicDir = path.resolve(process.cwd(), 'backend', 'public');
+      const targetRelPath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+      const filePath = path.join(publicDir, targetRelPath);
+
+      if (filePath.startsWith(publicDir) && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeTypes: Record<string, string> = {
+          '.html': 'text/html; charset=utf-8',
+          '.css': 'text/css; charset=utf-8',
+          '.js': 'application/javascript; charset=utf-8',
+          '.json': 'application/json; charset=utf-8',
+          '.svg': 'image/svg+xml',
+          '.png': 'image/png'
+        };
+        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+        if (req.method === 'HEAD') {
+          res.end();
+          return;
+        }
+        res.end(fs.readFileSync(filePath));
+        return;
+      }
+    }
+
+    // Real-time Server-Sent Events (SSE) Stream
+    if (req.method === 'GET' && (pathname === '/api/events' || pathname === '/api/workflow/stream')) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      });
+      res.write(`data: ${JSON.stringify({ type: 'connected', message: 'SSE Stream Active' })}\n\n`);
+
+      sseClients.add(res);
+      req.on('close', () => {
+        sseClients.delete(res);
+      });
+      return;
+    }
+
+    // =========================================================================
+    // AUTHENTICATION & USER PROFILES (GitHub & GitVerse Integration)
+    // =========================================================================
+
+    // POST /api/auth/register
+    if (req.method === 'POST' && pathname === '/api/auth/register') {
+      const body = await parseJsonBody(req);
+      const email = (body.email || '').trim().toLowerCase();
+      const password = body.password || '';
+      const name = (body.name || '').trim() || email.split('@')[0];
+
+      if (!email || !email.includes('@')) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Укажите корректный email адрес' }));
+        return;
+      }
+      if (!password || password.length < 4) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Пароль должен содержать не менее 4 символов' }));
+        return;
+      }
+
+      const existing = await db.getUserByEmail(email);
+      if (existing) {
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Пользователь с таким email уже зарегистрирован' }));
+        return;
+      }
+
+      const passwordHash = SecretVault.hashPassword(password);
+      const user = await db.createUser({
+        id: 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        email,
+        passwordHash,
+        name,
+        avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(email)}`
+      });
+
+      const token = await db.createSession(user.id);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, token, user: sanitizeUser(user) }));
+      return;
+    }
+
+    // POST /api/auth/login
+    if (req.method === 'POST' && pathname === '/api/auth/login') {
+      const body = await parseJsonBody(req);
+      const email = (body.email || '').trim().toLowerCase();
+      const password = body.password || '';
+
+      const user = await db.getUserByEmail(email);
+      if (!user || !user.passwordHash || !SecretVault.verifyPassword(password, user.passwordHash)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Неверный email или пароль' }));
+        return;
+      }
+
+      const token = await db.createSession(user.id);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, token, user: sanitizeUser(user) }));
+      return;
+    }
+
+    // POST /api/auth/github-token (Direct login or link with GitHub Personal Access Token)
+    if (req.method === 'POST' && pathname === '/api/auth/github-token') {
+      const body = await parseJsonBody(req);
+      const token = (body.token || '').trim();
+      if (!token) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'GitHub токен обязателен' }));
+        return;
+      }
+
+      try {
+        const ghRes = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'User-Agent': 'uncflow-AppSec',
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+        if (!ghRes.ok) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Неверный токен GitHub или токен истек' }));
+          return;
+        }
+        const ghUser = await ghRes.json();
+        const currentUser = await getUserFromRequest(req);
+
+        let targetUser: UserProfile;
+        if (currentUser) {
+          // Link to currently authenticated user profile
+          targetUser = (await db.updateUserProfile(currentUser.id, {
+            githubId: String(ghUser.id),
+            githubUsername: ghUser.login,
+            githubToken: token,
+            avatarUrl: currentUser.avatarUrl || ghUser.avatar_url
+          }))!;
+        } else {
+          // Find by github_id or email, or create
+          let existing = await db.getUserByGithubId(String(ghUser.id));
+          if (!existing && ghUser.email) {
+            existing = await db.getUserByEmail(ghUser.email);
+          }
+
+          if (existing) {
+            targetUser = (await db.updateUserProfile(existing.id, {
+              githubId: String(ghUser.id),
+              githubUsername: ghUser.login,
+              githubToken: token,
+              avatarUrl: ghUser.avatar_url || existing.avatarUrl
+            }))!;
+          } else {
+            const email = ghUser.email || `${ghUser.login}@users.noreply.github.com`;
+            targetUser = await db.createUser({
+              id: 'usr_gh_' + ghUser.id,
+              email,
+              name: ghUser.name || ghUser.login,
+              avatarUrl: ghUser.avatar_url,
+              githubId: String(ghUser.id),
+              githubUsername: ghUser.login,
+              githubToken: token
+            });
+          }
+        }
+
+        const sessionToken = await db.createSession(targetUser.id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, token: sessionToken, user: sanitizeUser(targetUser) }));
+        return;
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Ошибка проверки GitHub токена: ${err.message}` }));
+        return;
+      }
+    }
+
+    // GET /api/auth/github (OAuth Start)
+    if (req.method === 'GET' && pathname === '/api/auth/github') {
+      const clientId = process.env.GITHUB_CLIENT_ID;
+      if (!clientId) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          configured: false,
+          message: 'GitHub OAuth Client ID не задан в переменных окружения. Используйте вход по Personal Access Token (PAT).'
+        }));
+        return;
+      }
+      const redirectUri = encodeURIComponent(`http://${req.headers.host}/api/auth/github/callback`);
+      const ghAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=repo,read:user,user:email`;
+      res.writeHead(302, { 'Location': ghAuthUrl });
+      res.end();
+      return;
+    }
+
+    // GET /api/auth/github/callback (OAuth Callback)
+    if (req.method === 'GET' && pathname === '/api/auth/github/callback') {
+      const code = url.searchParams.get('code');
+      const clientId = process.env.GITHUB_CLIENT_ID;
+      const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+
+      if (!code || !clientId || !clientSecret) {
+        res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent('Отсутствуют параметры GitHub OAuth') });
+        res.end();
+        return;
+      }
+
+      try {
+        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            client_id: clientId,
+            client_secret: clientSecret,
+            code
+          })
+        });
+        const tokenData = await tokenRes.json();
+        const accessToken = tokenData.access_token;
+        if (!accessToken) {
+          res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent(tokenData.error_description || 'Ошибка получения токена GitHub') });
+          res.end();
+          return;
+        }
+
+        const ghUserRes = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'User-Agent': 'uncflow-AppSec'
+          }
+        });
+        const ghUser = await ghUserRes.json();
+
+        let existing = await db.getUserByGithubId(String(ghUser.id));
+        if (!existing && ghUser.email) {
+          existing = await db.getUserByEmail(ghUser.email);
+        }
+
+        let user: UserProfile;
+        if (existing) {
+          user = (await db.updateUserProfile(existing.id, {
+            githubId: String(ghUser.id),
+            githubUsername: ghUser.login,
+            githubToken: accessToken,
+            avatarUrl: ghUser.avatar_url || existing.avatarUrl
+          }))!;
+        } else {
+          user = await db.createUser({
+            id: 'usr_gh_' + ghUser.id,
+            email: ghUser.email || `${ghUser.login}@users.noreply.github.com`,
+            name: ghUser.name || ghUser.login,
+            avatarUrl: ghUser.avatar_url,
+            githubId: String(ghUser.id),
+            githubUsername: ghUser.login,
+            githubToken: accessToken
+          });
+        }
+
+        const sessionToken = await db.createSession(user.id);
+        res.writeHead(302, { 'Location': `/?auth_token=${sessionToken}` });
+        res.end();
+        return;
+      } catch (err: any) {
+        res.writeHead(302, { 'Location': '/?auth_error=' + encodeURIComponent(err.message) });
+        res.end();
+        return;
+      }
+    }
+
+    // GET /api/auth/me (Current user info)
+    if (req.method === 'GET' && pathname === '/api/auth/me') {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Не авторизован', authenticated: false }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ authenticated: true, user: sanitizeUser(user) }));
+      return;
+    }
+
+    // PUT /api/auth/profile (Update profile: name, email, GitHub token, GitVerse token)
+    if (req.method === 'PUT' && pathname === '/api/auth/profile') {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Необходима авторизация' }));
+        return;
+      }
+
+      const body = await parseJsonBody(req);
+      const updates: Partial<UserProfile> = {};
+      if (body.name !== undefined) updates.name = body.name.trim();
+      if (body.email !== undefined && body.email.includes('@')) updates.email = body.email.trim().toLowerCase();
+      if (body.gitverseUsername !== undefined) updates.gitverseUsername = body.gitverseUsername.trim();
+      if (body.gitverseToken !== undefined) updates.gitverseToken = body.gitverseToken.trim();
+      if (body.githubToken !== undefined) {
+        const ghToken = body.githubToken.trim();
+        updates.githubToken = ghToken;
+        if (ghToken) {
+          try {
+            const ghRes = await fetch('https://api.github.com/user', {
+              headers: { 'Authorization': `Bearer ${ghToken}`, 'User-Agent': 'uncflow-AppSec' }
+            });
+            if (ghRes.ok) {
+              const ghData = await ghRes.json();
+              updates.githubId = String(ghData.id);
+              updates.githubUsername = ghData.login;
+              if (ghData.avatar_url && !user.avatarUrl) updates.avatarUrl = ghData.avatar_url;
+            }
+          } catch {}
+        }
+      }
+
+      const updated = await db.updateUserProfile(user.id, updates);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, user: sanitizeUser(updated || user) }));
+      return;
+    }
+
+    // POST /api/auth/logout
+    if (req.method === 'POST' && pathname === '/api/auth/logout') {
+      const authHeader = req.headers.authorization || '';
+      const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : '';
+      if (token) {
+        await db.deleteSession(token);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Сессия завершена' }));
+      return;
+    }
+
+    // GET /api/auth/github/repos (Fetch user's private and public repositories)
+    if (req.method === 'GET' && pathname === '/api/auth/github/repos') {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Необходима авторизация' }));
+        return;
+      }
+      if (!user.githubToken) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'GitHub токен не привязан к профилю. Укажите токен в настройках профиля.' }));
+        return;
+      }
+
+      try {
+        const ghRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+          headers: {
+            'Authorization': `Bearer ${user.githubToken}`,
+            'User-Agent': 'uncflow-AppSec',
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+        if (!ghRes.ok) {
+          const ghErr = await ghRes.text();
+          res.writeHead(ghRes.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `GitHub API error: ${ghErr}` }));
+          return;
+        }
+        const repos = await ghRes.json();
+        const mappedRepos = (Array.isArray(repos) ? repos : []).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          fullName: r.full_name,
+          private: r.private,
+          htmlUrl: r.html_url,
+          cloneUrl: r.clone_url,
+          defaultBranch: r.default_branch || 'main',
+          description: r.description
+        }));
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ repos: mappedRepos }));
+        return;
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Сетевая ошибка при запросе к GitHub: ${err.message}` }));
+        return;
+      }
+    }
+
+    // 1. GET /api/nodes
+    if (req.method === 'GET' && pathname === '/api/nodes') {
+      const allNodes = registry.getAllNodes();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(allNodes));
+      return;
+    }
+
+    // 2. GET /api/templates
+    if (req.method === 'GET' && pathname === '/api/templates') {
+      const user = await getUserFromRequest(req);
+      const userId = url.searchParams.get('userId') || user?.id || undefined;
+      const allTemplates = await templates.getAllAsync(userId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(allTemplates));
+      return;
+    }
+
+    // 3. POST /api/templates or /api/templates/publish (Save template to PostgreSQL with user tenancy)
+    if (req.method === 'POST' && (pathname === '/api/templates' || pathname === '/api/templates/publish')) {
+      const user = await getUserFromRequest(req);
+      const body = await parseJsonBody(req);
+      const templateId = body.id || `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const templateToSave = {
+        id: templateId,
+        title: body.title || 'Пользовательский сценарий',
+        description: body.description || '',
+        category: body.category || 'Custom',
+        tags: Array.isArray(body.tags) ? body.tags : (body.tags ? body.tags.split(',').map((t: string) => t.trim()) : ['Custom']),
+        author: user?.name || body.author || 'Пользователь',
+        userId: user ? user.id : (body.userId || 'default_user'),
+        isPublic: body.isPublic !== undefined ? Boolean(body.isPublic) : false,
+        graph: body.graph
+      };
+      templates.publish(templateToSave, false);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Шаблон успешно сохранён в PostgreSQL', template: templateToSave }));
+      return;
+    }
+
+    // 3b. DELETE /api/templates/:id
+    if (req.method === 'DELETE' && pathname.startsWith('/api/templates/')) {
+      const id = pathname.replace('/api/templates/', '');
+      const user = await getUserFromRequest(req);
+      const userId = url.searchParams.get('userId') || user?.id || undefined;
+      const deleted = await db.deleteTemplate(id, userId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: deleted, id }));
+      return;
+    }
+
+    // 4. POST /api/ai/generate-workflow
+    if (req.method === 'POST' && pathname === '/api/ai/generate-workflow') {
+      const body = await parseJsonBody(req);
+      const prompt = body.prompt || '';
+      const generatedGraph = AiWorkflowGenerator.generateFromPrompt(prompt);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(generatedGraph));
+      return;
+    }
+
+    // 5. POST /api/workflow/run
+    if (req.method === 'POST' && pathname === '/api/workflow/run') {
+      const user = await getUserFromRequest(req);
+      const body = await parseJsonBody(req);
+      const graph: WorkflowGraph = body.graph;
+      const initialData = body.initialData || {};
+
+      if (!graph || !graph.nodes) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Параметр graph обязателен' }));
+        return;
+      }
+
+      if (user) {
+        initialData.userId = user.id;
+        initialData.user = sanitizeUser(user);
+
+        // Auto-inject user's GitHub / GitVerse token into any source.git node with empty token
+        for (const node of graph.nodes) {
+          if (node.type === 'source.git') {
+            node.settings = node.settings || {};
+            const repoUrl = (node.settings.repoUrl || '').trim();
+            const hasToken = node.settings.token && node.settings.token.trim();
+            if (!hasToken) {
+              if (repoUrl.includes('github.com') && user.githubToken) {
+                node.settings.token = user.githubToken;
+                console.log(`[Workflow Run] Авто-подстановка токена GitHub пользователя ${user.name} для ${repoUrl}`);
+              } else if (repoUrl.includes('gitverse.ru') && user.gitverseToken) {
+                node.settings.token = user.gitverseToken;
+                console.log(`[Workflow Run] Авто-подстановка токена GitVerse пользователя ${user.name} для ${repoUrl}`);
+              }
+            }
+          }
+        }
+      }
+
+      // Execute DAG and broadcast live events to all connected SSE clients
+      const result = await engine.executeWorkflow(graph, initialData, (event: WorkflowExecutionEvent) => {
+        broadcastEvent(event);
+      });
+
+      // Extract findings and severity breakdown
+      const reportOutput = result.nodeOutputs['node-report'] || {};
+      const findings: any[] = reportOutput.allFindings || result.nodeOutputs['node-agg']?.allFindings || [];
+      const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
+      const highCount = findings.filter(f => f.severity === 'HIGH').length;
+      const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
+      const lowCount = findings.filter(f => f.severity === 'LOW').length;
+
+      let repoUrl = '';
+      for (const out of Object.values(result.nodeOutputs)) {
+        if (out && (out as any).repoUrl) {
+          repoUrl = (out as any).repoUrl;
+          break;
+        }
+      }
+
+      const runRecord = {
+        id: result.runId,
+        workflowId: result.workflowId,
+        workflowName: graph.name || 'Unnamed Workflow',
+        userId: user ? user.id : 'anonymous',
+        repoUrl,
+        timestamp: result.startTime,
+        durationMs: result.durationMs,
+        success: result.success,
+        findingsCount: findings.length,
+        criticalCount,
+        highCount,
+        mediumCount,
+        lowCount,
+        result
+      };
+
+      // Save to in-memory run history
+      runHistory.unshift(runRecord);
+      if (runHistory.length > 50) runHistory.pop();
+
+      // Persist to PostgreSQL
+      await db.saveWorkflowRun({
+        id: result.runId,
+        workflowId: result.workflowId,
+        workflowName: graph.name || 'Unnamed Workflow',
+        success: result.success,
+        durationMs: result.durationMs,
+        startTime: result.startTime,
+        endTime: result.endTime,
+        findingsCount: findings.length,
+        criticalCount,
+        highCount,
+        mediumCount,
+        lowCount,
+        result
+      });
+
+      if (findings.length > 0) {
+        await db.saveFindings(result.runId, findings);
+      }
+
+      if (reportOutput.reportFiles) {
+        await db.saveReport({
+          runId: result.runId,
+          totalVulnerabilities: findings.length,
+          summary: { critical: criticalCount, high: highCount, medium: mediumCount, low: lowCount },
+          jsonContent: reportOutput.submissionJson ? (typeof reportOutput.submissionJson === 'string' ? JSON.parse(reportOutput.submissionJson) : reportOutput.submissionJson) : { findings },
+          markdownContent: reportOutput.reportFiles?.mdContent || ''
+        });
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ...result, repoUrl }));
+      return;
+    }
+
+    // 6. POST /api/workflow/run-node (Single node test run / data inspector)
+    if (req.method === 'POST' && pathname === '/api/workflow/run-node') {
+      const body = await parseJsonBody(req);
+      const nodeInstance = body.node;
+      const inputs = body.inputs || {};
+
+      const singleResult = await engine.runSingleNode(nodeInstance, inputs);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(singleResult));
+      return;
+    }
+
+    // 7. GET /api/ci/config
+    if (req.method === 'GET' && pathname === '/api/ci/config') {
+      const type = url.searchParams.get('type') || 'github';
+      const serverUrl = `http://${req.headers.host}`;
+      const config = type === 'gitlab'
+        ? CiCdManager.generateGitLabCi(serverUrl)
+        : CiCdManager.generateGitHubWorkflow(serverUrl);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ type, config }));
+      return;
+    }
+
+    // 8. POST /api/ci/run (Headless CI runner)
+    if (req.method === 'POST' && pathname === '/api/ci/run') {
+      const body = await parseJsonBody(req);
+      const commitSha = body.commitSha || 'unknown-sha';
+      const failOnCritical = body.failOnCritical !== false;
+
+      // Run default full audit template
+      const fullTemplate = templates.getById('template-full-audit')!;
+      const result = await engine.executeWorkflow(fullTemplate.graph, {}, (event) => {
+        broadcastEvent(event);
+      });
+
+      const reportOutput = result.nodeOutputs['node-report'] || {};
+      const findings: any[] = reportOutput.allFindings || result.nodeOutputs['node-agg']?.allFindings || [];
+      const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
+      const highCount = findings.filter(f => f.severity === 'HIGH').length;
+      const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
+      const lowCount = findings.filter(f => f.severity === 'LOW').length;
+      const hasBlockers = criticalCount > 0 || highCount > 0;
+
+      const exitCode = (failOnCritical && hasBlockers) ? 1 : 0;
+      const ciResult = {
+        status: exitCode === 0 ? 'passed' : 'failed',
+        exitCode,
+        totalFindings: findings.length,
+        criticalCount,
+        highCount,
+        findings,
+        summaryMarkdown: CiCdManager.formatPrComment({
+          status: exitCode === 0 ? 'passed' : 'failed',
+          exitCode,
+          totalFindings: findings.length,
+          criticalCount,
+          highCount,
+          summaryMarkdown: '',
+          findings
+        }, commitSha)
+      };
+
+      // Persist to PostgreSQL
+      await db.saveWorkflowRun({
+        id: result.runId,
+        workflowId: result.workflowId,
+        workflowName: 'CI/CD Pipeline Run',
+        success: exitCode === 0,
+        durationMs: result.durationMs,
+        startTime: result.startTime,
+        endTime: result.endTime,
+        findingsCount: findings.length,
+        criticalCount,
+        highCount,
+        mediumCount,
+        lowCount,
+        result
+      });
+
+      if (findings.length > 0) {
+        await db.saveFindings(result.runId, findings);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(ciResult));
+      return;
+    }
+
+    // ==============================================================
+    // WEBHOOK & CI/CD TRIGGERS
+    // ==============================================================
+
+    // GET /api/webhook/info (List of webhook endpoints and setup documentation)
+    if (req.method === 'GET' && pathname === '/api/webhook/info') {
+      const serverUrl = `http://${req.headers.host}`;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        endpoints: {
+          generic: `${serverUrl}/api/webhook/trigger`,
+          github: `${serverUrl}/api/webhook/github`,
+          gitlab: `${serverUrl}/api/webhook/gitlab`,
+          gitverse: `${serverUrl}/api/webhook/gitverse`
+        },
+        supportedEvents: ['push', 'pull_request', 'tag_push'],
+        description: 'Приём входящих Webhook-уведомлений для автоматического запуска аудита безопасности uncflow'
+      }));
+      return;
+    }
+
+    // POST /api/webhook/test-send (Test dispatching a webhook to an external URL)
+    if (req.method === 'POST' && pathname === '/api/webhook/test-send') {
+      const body = await parseJsonBody(req);
+      const targetUrl = (body.url || '').trim();
+      if (!targetUrl) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'URL вебхука не указан' }));
+        return;
+      }
+
+      const samplePayload = body.payload || {
+        event: 'test_webhook_ping',
+        timestamp: new Date().toISOString(),
+        source: 'uncflow Platform Test',
+        message: 'Проверка доступности вебхука'
+      };
+
+      try {
+        const fetchHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (body.secret) fetchHeaders['X-Security-Token'] = body.secret;
+        const testResp = await fetch(targetUrl, {
+          method: 'POST',
+          headers: fetchHeaders,
+          body: JSON.stringify(samplePayload),
+          signal: AbortSignal.timeout(6000)
+        });
+        const text = await testResp.text().catch(() => '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: testResp.ok,
+          status: testResp.status,
+          statusText: testResp.statusText,
+          responseBodySnippet: text.substring(0, 300)
+        }));
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: false,
+          error: err.message
+        }));
+      }
+      return;
+    }
+
+    // POST /api/notify/test-telegram (Test Telegram bot connectivity)
+    if (req.method === 'POST' && pathname === '/api/notify/test-telegram') {
+      const body = await parseJsonBody(req);
+      const botToken = (body.botToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+      const chatId = (body.chatId || process.env.TELEGRAM_CHAT_ID || '').trim();
+
+      if (!botToken || !chatId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'Не указаны botToken или chatId (и отсутствуют в .env)'
+        }));
+        return;
+      }
+
+      try {
+        const text = `🛡️ *uncflow — Тестовое оповещение*\n\n✅ Интеграция с Telegram настроена успешно!\n📅 ${new Date().toLocaleString('ru-RU')}`;
+        const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+          signal: AbortSignal.timeout(6000)
+        });
+        const resJson = await resp.json();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: resp.ok && resJson.ok,
+          messageId: resJson.result?.message_id,
+          error: resJson.description
+        }));
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
+    // POST /api/notify/test-yandex (Test Yandex Mail SMTP SSL:465 connectivity)
+    if (req.method === 'POST' && pathname === '/api/notify/test-yandex') {
+      const body = await parseJsonBody(req);
+      const user = (body.user || process.env.YANDEX_MAIL_USER || '').trim();
+      const password = (body.password || process.env.YANDEX_MAIL_PASSWORD || '').trim();
+      const to = (body.to || process.env.YANDEX_MAIL_TO || user || '').trim();
+
+      const mailRes = await sendYandexMail({
+        user,
+        password,
+        to,
+        subject: 'uncflow: Тестовое сообщение Яндекс Почты',
+        html: `<div style="font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 12px; border: 1px solid #1e293b;">
+          <h2 style="color: #38bdf8; margin: 0 0 10px 0;">🛡️ uncflow</h2>
+          <p>Интеграция с Яндекс Почтой (smtp.yandex.ru:465 SSL/TLS) работает успешно!</p>
+          <p style="color: #94a3b8; font-size: 13px;">Дата проверки: ${new Date().toLocaleString('ru-RU')}</p>
+        </div>`
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(mailRes));
+      return;
+    }
+
+    // POST /api/webhook (Accept incoming webhooks from GitHub, GitLab, GitVerse or CI/CD)
+    if (req.method === 'POST' && (pathname === '/api/webhook' || pathname.startsWith('/api/webhook/'))) {
+      const body = await parseJsonBody(req);
+      const headers = req.headers;
+
+      // Extract Git Repository & Branch info from GitHub, GitLab, GitVerse or direct payload
+      const repoUrl = body.repository?.clone_url || 
+                      body.repository?.html_url || 
+                      body.project?.git_http_url || 
+                      body.project?.web_url || 
+                      body.repoUrl || 
+                      body.repo || '';
+
+      const rawRef = body.ref || body.pull_request?.head?.ref || body.branch || 'main';
+      const branch = String(rawRef).replace(/^refs\/heads\//, '').trim() || 'main';
+      const commitSha = body.after || body.checkout_sha || body.pull_request?.head?.sha || body.head_commit?.id || body.commitSha || 'HEAD';
+      const author = body.pusher?.name || body.sender?.login || body.user_name || body.author || body.head_commit?.author?.name || 'Webhook CI';
+
+      console.log(`📡 [Incoming Webhook]: Received event on ${pathname} for repo: "${repoUrl || 'local'}" (branch: ${branch}, commit: ${commitSha})`);
+
+      // Find workflow to execute
+      const requestedWfId = url.searchParams.get('workflowId') || body.workflowId;
+      const allTpls = await templates.getAllAsync();
+
+      let targetTemplate = requestedWfId ? allTpls.find(t => t.id === requestedWfId) : null;
+      if (!targetTemplate) {
+        // Look for any template with a trigger.webhook node
+        targetTemplate = allTpls.find(t => t.graph?.nodes?.some((n: any) => n.type === 'trigger.webhook'));
+      }
+      if (!targetTemplate) {
+        targetTemplate = templates.getById('template-cicd-gatekeeper') || templates.getById('template-full-audit')!;
+      }
+
+      // Clone graph so we don't mutate template in place
+      const graph: WorkflowGraph = JSON.parse(JSON.stringify(targetTemplate.graph));
+
+      // Inject repoUrl and branch into source node if present
+      for (const n of graph.nodes) {
+        if (n.type === 'source.git' && repoUrl) {
+          n.parameters = n.parameters || {};
+          n.parameters.repoUrl = repoUrl;
+          n.parameters.branch = branch;
+        }
+      }
+
+      // Also inject user's tokens if auth token present
+      const user = await getUserFromRequest(req);
+      if (user) {
+        for (const n of graph.nodes) {
+          if (n.type === 'source.git') {
+            n.parameters = n.parameters || {};
+            if (!n.parameters.token) {
+              if (repoUrl.includes('gitverse.ru') && user.gitverseToken) {
+                n.parameters.token = user.gitverseToken;
+              } else if (user.githubToken) {
+                n.parameters.token = user.githubToken;
+              }
+            }
+          }
+        }
+      }
+
+      // Execute workflow with webhook payload
+      const initialData = {
+        start: true,
+        trigger: true,
+        repoUrl,
+        branch,
+        commitSha,
+        author,
+        payload: body
+      };
+
+      const result = await engine.executeWorkflow(graph, initialData, (event) => {
+        broadcastEvent(event);
+      });
+
+      const reportOutput = result.nodeOutputs['node-report'] || result.nodeOutputs['node-agg'] || {};
+      const findings: any[] = reportOutput.allFindings || reportOutput.findings || [];
+      const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
+      const highCount = findings.filter(f => f.severity === 'HIGH').length;
+      const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
+      const lowCount = findings.filter(f => f.severity === 'LOW').length;
+      const passed = (criticalCount + highCount) === 0;
+
+      // Persist to PostgreSQL
+      await db.saveWorkflowRun({
+        id: result.runId,
+        workflowId: targetTemplate.id,
+        workflowName: `${targetTemplate.title || graph.name} (Webhook)`,
+        success: result.success && passed,
+        durationMs: result.durationMs,
+        startTime: result.startTime,
+        endTime: result.endTime,
+        findingsCount: findings.length,
+        criticalCount,
+        highCount,
+        mediumCount,
+        lowCount,
+        result
+      });
+
+      if (findings.length > 0) {
+        await db.saveFindings(result.runId, findings);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        status: passed ? 'passed' : 'failed',
+        runId: result.runId,
+        workflowName: targetTemplate.title || graph.name,
+        repoUrl,
+        branch,
+        commitSha,
+        totalFindings: findings.length,
+        criticalCount,
+        highCount,
+        passed,
+        durationMs: result.durationMs,
+        message: passed 
+          ? 'Аудит безопасности успешно пройден. Блокирующих уязвимостей не обнаружено.' 
+          : `Обнаружены уязвимости (${criticalCount} CRIT, ${highCount} HIGH). Сборка заблокирована.`
+      }));
+      return;
+    }
+
+    // ==============================================================
+    // CRON SCHEDULER API
+    // ==============================================================
+
+    // GET /api/cron/jobs or GET /api/scheduler/jobs
+    if (req.method === 'GET' && (pathname === '/api/cron/jobs' || pathname === '/api/scheduler/jobs')) {
+      const jobs = await scheduler.discoverScheduledWorkflows();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        active: true,
+        currentTime: new Date().toISOString(),
+        count: jobs.length,
+        jobs
+      }));
+      return;
+    }
+
+    // POST /api/cron/run-now or POST /api/scheduler/run-now
+    if (req.method === 'POST' && (pathname === '/api/cron/run-now' || pathname === '/api/scheduler/run-now')) {
+      const body = await parseJsonBody(req);
+      const workflowId = body.workflowId || 'template-sca-monitor';
+      try {
+        const result = await scheduler.runJobNow(workflowId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, result }));
+      } catch (err: any) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
+    // POST /api/cron/describe
+    if (req.method === 'POST' && pathname === '/api/cron/describe') {
+      const body = await parseJsonBody(req);
+      const cron = body.cron || '0 14 * * *';
+      const description = CronParser.describe(cron);
+      const nextRun = CronParser.getNextRunDate(cron);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        cron,
+        description,
+        nextRun: nextRun.toISOString(),
+        nextRunFormatted: nextRun.toLocaleString('ru-RU')
+      }));
+      return;
+    }
+
+    // 9. GET /api/history or /api/reports/history
+    if (req.method === 'GET' && (pathname === '/api/history' || pathname === '/api/reports/history')) {
+      const runs = await db.getWorkflowRuns(50, 0);
+      const list = runs.length > 0 ? runs : runHistory;
+      const normalizedRuns = list.map(r => ({
+        ...r,
+        runId: r.id || (r as any).runId,
+        timestamp: r.startTime || (r as any).timestamp || r.createdAt || new Date().toISOString(),
+        totalFindings: r.findingsCount !== undefined ? r.findingsCount : ((r as any).totalFindings || 0)
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(normalizedRuns));
+      return;
+    }
+
+    // 9b. GET /api/history/:id
+    if (req.method === 'GET' && pathname.startsWith('/api/history/')) {
+      const id = pathname.replace('/api/history/', '');
+      const run = await db.getWorkflowRunById(id);
+      if (!run) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Запуск с id ${id} не найден` }));
+        return;
+      }
+      const findings = await db.getFindings({ runId: id });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ run, findings }));
+      return;
+    }
+
+    // 10. GET /api/reports/latest
+    if (req.method === 'GET' && pathname === '/api/reports/latest') {
+      // First try PostgreSQL reports table
+      const dbReport = await db.getLatestReport();
+      if (dbReport) {
+        const payload = {
+          totalVulnerabilities: dbReport.totalVulnerabilities,
+          summary: dbReport.summary,
+          findings: dbReport.jsonContent?.findings || [],
+          json: dbReport.jsonContent,
+          markdown: dbReport.markdownContent
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload));
+        return;
+      }
+
+      // Fallback to disk files
+      const jsonPath = path.resolve(process.cwd(), 'reports', 'submission-report.json');
+      const mdPath = path.resolve(process.cwd(), 'reports', 'audit-report.md');
+
+      let jsonContent: any = null;
+      let mdContent: string = '';
+
+      if (fs.existsSync(jsonPath)) {
+        try { jsonContent = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')); } catch {}
+      }
+      if (fs.existsSync(mdPath)) {
+        try { mdContent = fs.readFileSync(mdPath, 'utf-8'); } catch {}
+      }
+
+      // Fallback to latest run in memory
+      const rawFindings = jsonContent?.findings
+        || runHistory[0]?.result?.nodeOutputs?.['node-report']?.allFindings
+        || runHistory[0]?.result?.nodeOutputs?.['node-agg']?.allFindings
+        || [];
+
+      const findings = Array.isArray(rawFindings) ? rawFindings : [];
+      const critical = findings.filter((f: any) => f.severity === 'CRITICAL').length;
+      const high = findings.filter((f: any) => f.severity === 'HIGH').length;
+      const medium = findings.filter((f: any) => f.severity === 'MEDIUM').length;
+      const low = findings.filter((f: any) => f.severity === 'LOW').length;
+
+      const payload = {
+        totalVulnerabilities: findings.length,
+        summary: { critical, high, medium, low },
+        findings,
+        json: jsonContent || { findings },
+        markdown: mdContent || '# Отчёт безопасности\n\nАудит успешно завершён.'
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(payload));
+      return;
+    }
+
+    // 11. GET /api/findings (Search and filter across findings)
+    if (req.method === 'GET' && pathname === '/api/findings') {
+      const runId = url.searchParams.get('runId') || undefined;
+      const category = url.searchParams.get('category') || undefined;
+      const severity = url.searchParams.get('severity') || undefined;
+      const search = url.searchParams.get('search') || undefined;
+      const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+      const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+      const findings = await db.getFindings({ runId, category, severity, search, limit, offset });
+      const stats = await db.getFindingsStats();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ total: stats.total, stats, findings }));
+      return;
+    }
+
+    // 12. GET /api/findings/stats
+    if (req.method === 'GET' && pathname === '/api/findings/stats') {
+      const stats = await db.getFindingsStats();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(stats));
+      return;
+    }
+
+    // 13. GET /api/db/health or /api/health (PostgreSQL status & statistics)
+    if (req.method === 'GET' && (pathname === '/api/db/health' || pathname === '/api/health')) {
+      const health = await db.getHealth();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString(), database: health }));
+      return;
+    }
+
+    // 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Not found: ${pathname}` }));
+  } catch (err: any) {
+    console.error('API Error:', err);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err?.message || 'Internal Server Error' }));
+  }
+});
+
+function broadcastEvent(event: WorkflowExecutionEvent) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    client.write(data);
+  }
+}
+
+function parseJsonBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (e) {
+        reject(new Error('Invalid JSON payload'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function getUserFromRequest(req: http.IncomingMessage): Promise<UserProfile | null> {
+  const authHeader = req.headers.authorization || '';
+  let token = '';
+  if (authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers.cookie) {
+    const match = req.headers.cookie.match(/auth_token=([^;]+)/);
+    if (match) token = match[1];
+  }
+  if (!token) {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    token = url.searchParams.get('token') || '';
+  }
+  if (!token) return null;
+  return await db.getUserBySessionToken(token);
+}
+
+function sanitizeUser(user: UserProfile) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    githubId: user.githubId,
+    githubUsername: user.githubUsername,
+    hasGithubToken: Boolean(user.githubToken),
+    githubTokenMasked: user.githubToken ? SecretVault.mask(user.githubToken) : null,
+    gitverseUsername: user.gitverseUsername,
+    hasGitverseToken: Boolean(user.gitverseToken),
+    gitverseTokenMasked: user.gitverseToken ? SecretVault.mask(user.gitverseToken) : null,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  };
+}
+
+server.listen(PORT, async () => {
+  console.log(`===============================================================`);
+  console.log(`🚀 AI SECURITY WORKFLOW BACKEND SERVER RUNNING ON PORT ${PORT}`);
+  console.log(`   REST API:   http://localhost:${PORT}/api`);
+  console.log(`   Live SSE:   http://localhost:${PORT}/api/events`);
+  console.log(`   Database:   PostgreSQL (Connecting...)`);
+  console.log(`===============================================================`);
+
+  // Initialize PostgreSQL and sync templates
+  try {
+    const ok = await db.init();
+    if (ok) {
+      await templates.syncFromDb();
+      console.log(`🐘 [PostgreSQL Ready]: Tables & initial templates initialized.`);
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ [PostgreSQL]: Initial connect deferred (${err?.message})`);
+  }
+
+  // Start background Cron Scheduler (checks active schedules every 30 seconds)
+  scheduler.start(30000);
+});

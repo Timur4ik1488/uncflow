@@ -1,0 +1,12 @@
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  datasource:
+    url: jdbc:postgresql://localhost:5432/repairdesk
+    username: postgres
+    password: postgrespassword
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always

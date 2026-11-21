@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: security_workflow_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: security_workflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/src/storage/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d security_workflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  ai-security-workflow:
+    build: .
+    container_name: ai_security_workflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://postgres:postgrespassword@postgres:5432/security_workflow
+      - PGHOST=postgres
+      - PGPORT=5432
+      - PGUSER=postgres
+      - PGPASSWORD=postgrespassword
+      - PGDATABASE=security_workflow
+      - VAULT_SECRET_KEY=cyber-garden-2026-master-key-32b
+    volumes:
+      - ./reports:/app/reports:z
+    restart: unless-stopped
+
+volumes:
+  pgdata:

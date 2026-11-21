@@ -1,0 +1,19 @@
+{
+  "name": "ai-security-workflow-root",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types backend/src/server.ts",
+    "dev": "node --experimental-strip-types backend/src/server.ts",
+    "test": "node --experimental-strip-types backend/test/ground-truth.test.ts",
+    "test:workflow": "node --experimental-strip-types backend/test/workflow-engine.test.ts",
+    "test:db": "node --experimental-strip-types backend/test/postgres-storage.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}
