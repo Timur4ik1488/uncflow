@@ -32,6 +32,7 @@ export interface DeclaredDependency {
   version: string;
   rawLine: string;
   lineNum: number;
+  filePath: string;
 }
 
 export class ScaAnalyzer {
@@ -45,7 +46,7 @@ export class ScaAnalyzer {
     }
   }
 
-  public loadDatabase(dbPath: string) {
+  public loadDatabase(dbPath: string): void {
     if (!fs.existsSync(dbPath)) {
       throw new Error(`Vulnerability database not found at ${dbPath}`);
     }
@@ -58,7 +59,6 @@ export class ScaAnalyzer {
     if (customDbPath) {
       this.loadDatabase(customDbPath);
     } else if (this.vulnDb.length === 0) {
-      // Look for default vulnerability database in known paths
       const candidates = [
         path.join(projectRoot, '..', 'vulnerability-database', 'vulnerabilities.json'),
         path.join(projectRoot, 'vulnerability-database', 'vulnerabilities.json'),
@@ -73,12 +73,16 @@ export class ScaAnalyzer {
     }
 
     const findings: ScaFinding[] = [];
-    const buildGradlePath = path.join(projectRoot, 'build.gradle.kts');
-    if (!fs.existsSync(buildGradlePath)) {
+
+    // Find build files: build.gradle.kts, build.gradle
+    const candidateBuildFiles = [
+      path.join(projectRoot, 'build.gradle.kts'),
+      path.join(projectRoot, 'build.gradle')
+    ].filter(p => fs.existsSync(p));
+
+    if (candidateBuildFiles.length === 0) {
       return findings;
     }
-
-    const relBuildGradle = path.relative(projectRoot, buildGradlePath).replace(/\\/g, '/');
 
     // 1. Read gradle.properties if exists
     const gradleProps = this.loadGradleProperties(projectRoot);
@@ -86,19 +90,32 @@ export class ScaAnalyzer {
     // 2. Read gradle.lockfile if exists
     const lockfileDeps = this.loadLockfile(projectRoot);
 
-    // 3. Extract dependencies from build.gradle.kts
-    const dependencies = this.extractDependencies(buildGradlePath, gradleProps, lockfileDeps);
+    // 3. Extract dependencies from all build files
+    const dependencies: DeclaredDependency[] = [];
+    for (const buildFile of candidateBuildFiles) {
+      const relPath = path.relative(projectRoot, buildFile).replace(/\\/g, '/');
+      const deps = this.extractDependencies(buildFile, relPath, gradleProps, lockfileDeps);
+      dependencies.push(...deps);
+    }
 
     // 4. Match against vulnerability database
     for (const dep of dependencies) {
       const matchedVulns = this.checkVulnerability(dep);
       for (const vuln of matchedVulns) {
         // Preferred advisoryId: CVE alias if present, else id (GHSA-...)
-        const advisoryId = (vuln.aliases && vuln.aliases.length > 0) ? vuln.aliases[0] : vuln.id;
+        let advisoryId = vuln.id;
+        if (!advisoryId.startsWith('CVE-') && vuln.aliases && vuln.aliases.length > 0) {
+          const cveAlias = vuln.aliases.find(a => a.startsWith('CVE-'));
+          if (cveAlias) {
+            advisoryId = cveAlias;
+          } else {
+            advisoryId = vuln.aliases[0];
+          }
+        }
 
         findings.push({
           category: 'SCA',
-          path: relBuildGradle,
+          path: dep.filePath,
           group: dep.group,
           artifact: dep.artifact,
           version: dep.version,
@@ -148,11 +165,12 @@ export class ScaAnalyzer {
         }
       }
     }
-    return propsToMap(lock);
+    return lock;
   }
 
   private extractDependencies(
     buildFilePath: string,
+    relPath: string,
     gradleProps: Map<string, string>,
     lockfile: Map<string, string>
   ): DeclaredDependency[] {
@@ -160,16 +178,15 @@ export class ScaAnalyzer {
     const content = fs.readFileSync(buildFilePath, 'utf-8');
     const lines = content.split('\n');
 
-    // Local val variables (e.g., val archiveFormatVersion = "1.25.0")
     const localVals = new Map<string, string>();
 
-    // Pass 1: collect local variables
+    // Pass 1: collect local variables (val archiveVersion = "1.0", def myVer = "...")
     for (const line of lines) {
-      const valMatch = line.match(/val\s+([a-zA-Z0-9_]+)\s*=\s*["']([^"']+)["']/);
+      const valMatch = line.match(/(?:val|var|def)\s+([a-zA-Z0-9_]+)\s*=\s*["']([^"']+)["']/);
       if (valMatch) {
         localVals.set(valMatch[1], valMatch[2]);
       }
-      const propGetMatch = line.match(/val\s+([a-zA-Z0-9_]+)\s*=\s*providers\.gradleProperty\(["']([^"']+)["']\)\.get\(\)/);
+      const propGetMatch = line.match(/(?:val|var|def)\s+([a-zA-Z0-9_]+)\s*=\s*providers\.gradleProperty\(["']([^"']+)["']\)\.get\(\)/);
       if (propGetMatch) {
         const varName = propGetMatch[1];
         const propName = propGetMatch[2];
@@ -183,35 +200,55 @@ export class ScaAnalyzer {
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
       const line = lines[i];
+      const trimmed = line.trim();
 
-      // Form 1: implementation("group:artifact:version") or runtimeOnly(...) etc.
-      const stdMatch = line.match(/(?:implementation|api|runtimeOnly|testImplementation)\s*\(\s*["']([^"':]+):([^"':]+):([^"']+)["']\s*\)/);
+      // Skip test configurations to avoid test dependencies FP
+      if (
+        trimmed.startsWith('testImplementation') ||
+        trimmed.startsWith('testCompileOnly') ||
+        trimmed.startsWith('testRuntimeOnly')
+      ) {
+        continue;
+      }
+
+      // Check standard configurations: implementation, api, runtimeOnly, compileOnly, etc.
+      // 1. Direct coordinate string: implementation("group:artifact:version") or implementation "group:artifact:version"
+      const stdMatch = line.match(/(?:implementation|api|runtimeOnly|compileOnly)\s*\(?\s*["']([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^"']+)["']\s*\)?/);
       if (stdMatch) {
         const group = stdMatch[1];
         const artifact = stdMatch[2];
         let version = stdMatch[3];
-
         version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
-        deps.push({ group, artifact, version, rawLine: line, lineNum });
+        deps.push({ group, artifact, version, rawLine: line, lineNum, filePath: relPath });
         continue;
       }
 
-      // Form 2: add("implementation", "commons-net:commons-net:3.8.0")
-      // May be multiline or single line
-      const addMatch = line.match(/["']([^"':]+):([^"':]+):([^"']+)["']/);
-      if (addMatch && (line.includes('commons-net') || line.includes(':'))) {
-        // verify if inside dependencies block
-        const prevOrCurrent = (lines[Math.max(0, i - 1)] + ' ' + line).toLowerCase();
-        if (prevOrCurrent.includes('add') || prevOrCurrent.includes('implementation')) {
-          const group = addMatch[1];
-          const artifact = addMatch[2];
-          let version = addMatch[3];
+      // 2. Named parameters: implementation(group = "...", name = "...", version = "...")
+      const mapMatch = line.match(/group\s*=\s*["']([A-Za-z0-9_.-]+)["']\s*,\s*name\s*=\s*["']([A-Za-z0-9_.-]+)["'](?:\s*,\s*version\s*=\s*["']([^"']+)["'])?/);
+      if (mapMatch) {
+        const group = mapMatch[1];
+        const artifact = mapMatch[2];
+        let version = mapMatch[3] || '';
+        version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
+        deps.push({ group, artifact, version, rawLine: line, lineNum, filePath: relPath });
+        continue;
+      }
 
-          // Check if valid group/artifact
-          if (group.includes('.') || group === 'commons-net') {
-            version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
-            deps.push({ group, artifact, version, rawLine: line, lineNum });
-          }
+      // 3. Multi-line or add syntax: add("implementation", "group:artifact:version")
+      const coordMatch = line.match(/["']([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^"']+)["']/);
+      if (coordMatch) {
+        const prevOrCurrent = (lines[Math.max(0, i - 1)] + ' ' + line).toLowerCase();
+        if (
+          prevOrCurrent.includes('add') ||
+          prevOrCurrent.includes('implementation') ||
+          prevOrCurrent.includes('api') ||
+          prevOrCurrent.includes('runtimeonly')
+        ) {
+          const group = coordMatch[1];
+          const artifact = coordMatch[2];
+          let version = coordMatch[3];
+          version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
+          deps.push({ group, artifact, version, rawLine: line, lineNum, filePath: relPath });
         }
       }
     }
@@ -229,7 +266,7 @@ export class ScaAnalyzer {
   ): string {
     let version = versionRaw.trim();
 
-    // Check $var interpolation e.g. "$archiveFormatVersion"
+    // Variable interpolation: $archiveFormatVersion or ${archiveFormatVersion}
     if (version.startsWith('$')) {
       const varName = version.substring(1).replace(/[{}]/g, '');
       if (localVals.has(varName)) {
@@ -240,7 +277,7 @@ export class ScaAnalyzer {
       }
     }
 
-    // Check lockfile fallback
+    // Lockfile fallback if version is empty or still variable
     const lockKey = `${group}:${artifact}`;
     if (lockfile.has(lockKey) && (!version || version.includes('$'))) {
       return lockfile.get(lockKey)!;
@@ -279,8 +316,4 @@ export class ScaAnalyzer {
 
     return matched;
   }
-}
-
-function propsToMap(m: Map<string, string>): Map<string, string> {
-  return m;
 }
