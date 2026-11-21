@@ -15,7 +15,7 @@ import { sendYandexMail } from './notifications/mailer.ts';
 import type { WorkflowGraph, WorkflowExecutionEvent } from './engine/types.ts';
 import { extractWorkflowFindings } from './engine/workflow-utils.ts';
 import { isPrivateOrLoopbackUrl } from './validators/ssrf-validator.ts';
-import { maskSensitiveText } from './validators/submission-validator.ts';
+import { maskSensitiveText, sanitizeFindingForExport } from './validators/submission-validator.ts';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
@@ -831,8 +831,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 7. GET /api/ci/config
-    if (req.method === 'GET' && pathname === '/api/ci/config') {
+    // 7. GET /api/ci/config & /api/cicd/config
+    if (req.method === 'GET' && (pathname === '/api/ci/config' || pathname === '/api/cicd/config')) {
       const type = url.searchParams.get('type') || 'github';
       const serverUrl = getPublicBaseUrl(req);
       const config = type === 'gitlab'
@@ -844,19 +844,51 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 8. POST /api/ci/run (Headless CI runner)
-    if (req.method === 'POST' && pathname === '/api/ci/run') {
+    // 8. POST /api/ci/run and /api/v1/ci/run (Headless CI runner)
+    if (req.method === 'POST' && (pathname === '/api/ci/run' || pathname === '/api/v1/ci/run')) {
+      const ciTokenHeader = req.headers['x-ci-token'] as string;
+      const authHeader = req.headers.authorization || '';
+      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : '';
+      const token = ciTokenHeader || bearerToken;
+      const expectedToken = process.env.CI_API_TOKEN || 'SECRET_CI_KEY';
+
+      let authorized = false;
+      if (token && token === expectedToken) {
+        authorized = true;
+      } else {
+        const user = await getUserFromRequest(req);
+        if (user) authorized = true;
+      }
+
+      if (!authorized && process.env.CI_API_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Неверный или отсутствующий токен авторизации CI (X-CI-Token / Authorization)' }));
+        return;
+      }
+
       const body = await parseJsonBody(req);
       const commitSha = body.commitSha || 'unknown-sha';
       const failOnCritical = body.failOnCritical !== false;
+      const requestedWfId = body.workflowId;
 
-      // Run default full audit template
-      const fullTemplate = templates.getById('template-full-audit')!;
-      const result = await engine.executeWorkflow(fullTemplate.graph, {}, (event) => {
+      // Select template or default
+      let targetTemplate: any = null;
+      if (requestedWfId) {
+        targetTemplate = templates.getById(requestedWfId) || (await templates.getAllAsync()).find(t => t.id === requestedWfId);
+      }
+      if (!targetTemplate) {
+        targetTemplate = templates.getById('template-full-audit')!;
+      }
+
+      const initialData: Record<string, any> = {};
+      if (body.repo || body.repository) initialData.repoUrl = body.repo || body.repository;
+      if (body.branch) initialData.branch = body.branch;
+
+      const result = await engine.executeWorkflow(targetTemplate.graph, initialData, (event) => {
         broadcastEvent(event);
       });
 
-      const findings: any[] = extractWorkflowFindings(fullTemplate?.graph, result);
+      const findings: any[] = extractWorkflowFindings(targetTemplate?.graph, result);
       const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
       const highCount = findings.filter(f => f.severity === 'HIGH').length;
       const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
@@ -864,12 +896,26 @@ const server = http.createServer(async (req, res) => {
       const hasBlockers = criticalCount > 0 || highCount > 0;
 
       const exitCode = (failOnCritical && hasBlockers) ? 1 : 0;
+      const serverUrl = getPublicBaseUrl(req);
       const ciResult = {
         status: exitCode === 0 ? 'passed' : 'failed',
         exitCode,
+        summary: {
+          critical: criticalCount,
+          high: highCount,
+          medium: mediumCount,
+          low: lowCount,
+          total: findings.length
+        },
+        reportUrl: `${serverUrl}/api/reports/latest`,
+        jsonReport: {
+          findings: findings.map(sanitizeFindingForExport)
+        },
         totalFindings: findings.length,
         criticalCount,
         highCount,
+        mediumCount,
+        lowCount,
         findings,
         summaryMarkdown: CiCdManager.formatPrComment({
           status: exitCode === 0 ? 'passed' : 'failed',
@@ -906,6 +952,84 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(ciResult));
       return;
+    }
+
+    // 8b. POST /api/ci/install-github (1-Click GitHub Actions installation)
+    if (req.method === 'POST' && pathname === '/api/ci/install-github') {
+      const user = await getUserFromRequest(req);
+      if (!user || !user.githubToken) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Необходима авторизация через GitHub или привязанный GitHub Token в профиле' }));
+        return;
+      }
+
+      const body = await parseJsonBody(req);
+      const fullRepo = (body.repo || '').trim(); // e.g. "owner/repo"
+      const branch = (body.branch || 'main').trim();
+      if (!fullRepo || !fullRepo.includes('/')) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Укажите репозиторий в формате owner/repo' }));
+        return;
+      }
+
+      try {
+        const serverUrl = getPublicBaseUrl(req);
+        const workflowYaml = CiCdManager.generateGitHubWorkflow(serverUrl, process.env.CI_API_TOKEN || 'SECRET_CI_KEY');
+        const encodedContent = Buffer.from(workflowYaml).toString('base64');
+        const filePath = '.github/workflows/security-gate.yml';
+
+        // Check if file already exists (to obtain sha for update)
+        let fileSha: string | undefined;
+        try {
+          const checkRes = await fetch(`https://api.github.com/repos/${fullRepo}/contents/${filePath}?ref=${branch}`, {
+            headers: {
+              'Authorization': `Bearer ${user.githubToken}`,
+              'User-Agent': 'uncflow-AppSec',
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          if (checkRes.ok) {
+            const fileData = await checkRes.json();
+            fileSha = fileData.sha;
+          }
+        } catch {}
+
+        // Create or update file
+        const putPayload: any = {
+          message: 'ci: add uncflow automated security gatekeeper workflow',
+          content: encodedContent,
+          branch
+        };
+        if (fileSha) putPayload.sha = fileSha;
+
+        const putRes = await fetch(`https://api.github.com/repos/${fullRepo}/contents/${filePath}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${user.githubToken}`,
+            'User-Agent': 'uncflow-AppSec',
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(putPayload)
+        });
+
+        if (!putRes.ok) {
+          const errData = await putRes.json();
+          throw new Error(errData.message || `GitHub API error ${putRes.status}`);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          message: `Файл ${filePath} успешно установлен в репозиторий ${fullRepo}!`,
+          workflowPath: filePath
+        }));
+        return;
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+        return;
+      }
     }
 
     // ==============================================================
