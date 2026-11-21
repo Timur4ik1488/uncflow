@@ -13,6 +13,7 @@ import { SecretVault } from './storage/crypto.ts';
 import { WorkflowScheduler, CronParser } from './engine/scheduler.ts';
 import { sendYandexMail } from './notifications/mailer.ts';
 import type { WorkflowGraph, WorkflowExecutionEvent } from './engine/types.ts';
+import { extractWorkflowFindings } from './engine/workflow-utils.ts';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
@@ -650,9 +651,20 @@ const server = http.createServer(async (req, res) => {
         broadcastEvent(event);
       });
 
-      // Extract findings and severity breakdown
-      const reportOutput = result.nodeOutputs['node-report'] || {};
-      const findings: any[] = reportOutput.allFindings || result.nodeOutputs['node-agg']?.allFindings || [];
+      // Extract findings and severity breakdown by node types
+      const findings: any[] = extractWorkflowFindings(graph, result);
+      let reportOutput: any = {};
+      for (const node of graph.nodes) {
+        if (node.type === 'report.dual' || node.type === 'report.json') {
+          if (result.nodeOutputs[node.id]) {
+            reportOutput = result.nodeOutputs[node.id];
+            break;
+          }
+        }
+      }
+      if (!reportOutput.reportFiles) {
+        reportOutput = result.nodeOutputs['node-report'] || {};
+      }
       const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
       const highCount = findings.filter(f => f.severity === 'HIGH').length;
       const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
@@ -791,8 +803,7 @@ const server = http.createServer(async (req, res) => {
         broadcastEvent(event);
       });
 
-      const reportOutput = result.nodeOutputs['node-report'] || {};
-      const findings: any[] = reportOutput.allFindings || result.nodeOutputs['node-agg']?.allFindings || [];
+      const findings: any[] = extractWorkflowFindings(fullTemplate?.graph, result);
       const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
       const highCount = findings.filter(f => f.severity === 'HIGH').length;
       const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
@@ -1052,8 +1063,7 @@ const server = http.createServer(async (req, res) => {
         broadcastEvent(event);
       });
 
-      const reportOutput = result.nodeOutputs['node-report'] || result.nodeOutputs['node-agg'] || {};
-      const findings: any[] = reportOutput.allFindings || reportOutput.findings || [];
+      const findings: any[] = extractWorkflowFindings(graph, result);
       const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
       const highCount = findings.filter(f => f.severity === 'HIGH').length;
       const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
@@ -1213,8 +1223,7 @@ const server = http.createServer(async (req, res) => {
 
       // Fallback to latest run in memory
       const rawFindings = jsonContent?.findings
-        || runHistory[0]?.result?.nodeOutputs?.['node-report']?.allFindings
-        || runHistory[0]?.result?.nodeOutputs?.['node-agg']?.allFindings
+        || extractWorkflowFindings(undefined, runHistory[0]?.result)
         || [];
 
       const findings = Array.isArray(rawFindings) ? rawFindings : [];

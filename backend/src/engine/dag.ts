@@ -7,6 +7,18 @@ export interface TopologicalLayer {
 
 export class DagManager {
   /**
+   * Validates if graph is a valid DAG and does not contain cycles.
+   */
+  public static validateDag(graph: WorkflowGraph): { valid: boolean; error?: string } {
+    try {
+      this.getExecutionLayers(graph);
+      return { valid: true };
+    } catch (err: any) {
+      return { valid: false, error: err?.message || 'Cycle detected in workflow graph' };
+    }
+  }
+
+  /**
    * Validates if graph has cycles and returns execution layers
    */
   public static getExecutionLayers(graph: WorkflowGraph): TopologicalLayer[] {
@@ -37,11 +49,11 @@ export class DagManager {
     }
 
     let levelIdx = 0;
-    const visitedCount = { count: 0 };
+    let visitedCount = 0;
 
     while (currentLevel.length > 0) {
       layers.push({ level: levelIdx++, nodeIds: [...currentLevel] });
-      visitedCount.count += currentLevel.length;
+      visitedCount += currentLevel.length;
 
       const nextLevel: string[] = [];
 
@@ -59,8 +71,9 @@ export class DagManager {
       currentLevel = nextLevel;
     }
 
-    if (visitedCount.count < nodeIds.size) {
-      throw new Error('Cycle detected in workflow graph! Execution requires a Directed Acyclic Graph (DAG).');
+    if (visitedCount < nodeIds.size) {
+      const remainingNodes = Array.from(nodeIds).filter(id => (inDegree.get(id) || 0) > 0);
+      throw new Error(`Cycle detected in workflow graph! Cyclic nodes: [${remainingNodes.join(', ')}]. Execution requires a Directed Acyclic Graph (DAG).`);
     }
 
     return layers;

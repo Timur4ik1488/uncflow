@@ -41,7 +41,11 @@ export class WorkflowEngine {
     const nodeInputs = new Map<string, Record<string, any>>();
     const nodeStatuses = new Map<string, NodeExecutionStatus>();
     const nodeErrors = new Map<string, string>();
+
+    const completedNodes = new Set<string>();
     const skippedNodes = new Set<string>();
+    const failedNodes = new Set<string>();
+    const prunedEdges = new Set<string>();
 
     for (const node of graph.nodes) {
       nodeStatuses.set(node.id, 'idle');
@@ -60,6 +64,19 @@ export class WorkflowEngine {
       timestamp: new Date().toISOString()
     });
 
+    // 1. DAG validation and cycle check
+    const dagCheck = DagManager.validateDag(graph);
+    if (!dagCheck.valid) {
+      const err = new Error(dagCheck.error || 'Invalid workflow DAG: cycle detected');
+      emit({
+        type: 'workflow-failed',
+        runId,
+        error: err.message,
+        timestamp: new Date().toISOString()
+      });
+      throw err;
+    }
+
     const context: ExecutionContext = {
       workflowId: graph.id,
       runId,
@@ -77,9 +94,29 @@ export class WorkflowEngine {
           const nodeInstance = graph.nodes.find(n => n.id === nodeId);
           if (!nodeInstance) return;
 
-          // If node was marked as skipped (e.g. from an inactive if/else branch)
+          const incoming = DagManager.getIncomingEdges(graph, nodeId);
+
+          // Determine if node should be skipped
+          let shouldSkip = false;
           if (skippedNodes.has(nodeId)) {
+            shouldSkip = true;
+          } else if (incoming.length > 0) {
+            // Node has incoming dependencies: check if any are active
+            const hasActiveIncoming = incoming.some(
+              edge => !prunedEdges.has(edge.id) && completedNodes.has(edge.source)
+            );
+            if (!hasActiveIncoming) {
+              shouldSkip = true;
+            }
+          }
+
+          if (shouldSkip) {
+            skippedNodes.add(nodeId);
             nodeStatuses.set(nodeId, 'skipped');
+            // Prune all outgoing edges from skipped node
+            for (const outEdge of DagManager.getOutgoingEdges(graph, nodeId)) {
+              prunedEdges.add(outEdge.id);
+            }
             emit({
               type: 'node-completed',
               runId,
@@ -90,13 +127,14 @@ export class WorkflowEngine {
             return;
           }
 
-          // Gather inputs from incoming edges
-          const incoming = DagManager.getIncomingEdges(graph, nodeId);
+          // Gather inputs only from active completed incoming edges
           const collectedInputs: Record<string, any> = { ...initialData };
 
           for (const edge of incoming) {
+            if (prunedEdges.has(edge.id) || !completedNodes.has(edge.source)) {
+              continue;
+            }
             const srcOutputs = nodeOutputs.get(edge.source) || {};
-            // If edge connects specific handles
             if (edge.sourceHandle && edge.targetHandle) {
               collectedInputs[edge.targetHandle] = srcOutputs[edge.sourceHandle];
             } else if (edge.sourceHandle) {
@@ -109,7 +147,6 @@ export class WorkflowEngine {
                 collectedInputs[edge.sourceHandle] = val;
               }
             } else {
-              // Merge all outputs from source
               Object.assign(collectedInputs, srcOutputs);
             }
           }
@@ -138,6 +175,7 @@ export class WorkflowEngine {
 
             nodeOutputs.set(nodeId, output);
             nodeStatuses.set(nodeId, 'completed');
+            completedNodes.add(nodeId);
 
             emit({
               type: 'node-completed',
@@ -148,17 +186,16 @@ export class WorkflowEngine {
               timestamp: new Date().toISOString()
             });
 
-            // Special handle for conditional branch pruning (If/Else)
+            // Handle conditional branch pruning (If/Else)
             if (nodeInstance.type === 'logic.condition' && output) {
               const conditionResult = output.result === true;
               const outgoing = DagManager.getOutgoingEdges(graph, nodeId);
               for (const edge of outgoing) {
-                // If branch doesn't match condition result, mark downstream as skipped
                 if (
                   (conditionResult && edge.sourceHandle === 'false') ||
                   (!conditionResult && edge.sourceHandle === 'true')
                 ) {
-                  this.propagateSkipped(graph, edge.target, skippedNodes);
+                  prunedEdges.add(edge.id);
                 }
               }
             }
@@ -166,6 +203,12 @@ export class WorkflowEngine {
             const errorMsg = err?.message || String(err);
             nodeErrors.set(nodeId, errorMsg);
             nodeStatuses.set(nodeId, 'failed');
+            failedNodes.add(nodeId);
+
+            // Prune outgoing edges of failed node
+            for (const edge of DagManager.getOutgoingEdges(graph, nodeId)) {
+              prunedEdges.add(edge.id);
+            }
 
             emit({
               type: 'node-failed',
@@ -175,12 +218,6 @@ export class WorkflowEngine {
               error: errorMsg,
               timestamp: new Date().toISOString()
             });
-
-            // Propagate skip to all downstream nodes of failed node
-            const outgoing = DagManager.getOutgoingEdges(graph, nodeId);
-            for (const edge of outgoing) {
-              this.propagateSkipped(graph, edge.target, skippedNodes);
-            }
           }
         });
 
@@ -225,7 +262,7 @@ export class WorkflowEngine {
   }
 
   /**
-   * Run a single node in isolation with custom/pinned inputs (n8n feature)
+   * Run a single node in isolation with custom/pinned inputs
    */
   public async runSingleNode(
     nodeInstance: WorkflowNodeInstance,
@@ -250,16 +287,6 @@ export class WorkflowEngine {
       return { success: true, output, durationMs: Date.now() - t0 };
     } catch (err: any) {
       return { success: false, error: err?.message || String(err), durationMs: Date.now() - t0 };
-    }
-  }
-
-  private propagateSkipped(graph: WorkflowGraph, startNodeId: string, skippedSet: Set<string>) {
-    skippedSet.add(startNodeId);
-    const outgoing = DagManager.getOutgoingEdges(graph, startNodeId);
-    for (const edge of outgoing) {
-      if (!skippedSet.has(edge.target)) {
-        this.propagateSkipped(graph, edge.target, skippedSet);
-      }
     }
   }
 }

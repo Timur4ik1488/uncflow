@@ -470,18 +470,29 @@ export class NodeRegistry {
           }
         }
 
+        let deduped = combined;
+        if (settings.deduplicate !== false) {
+          const seen = new Set<string>();
+          deduped = combined.filter(f => {
+            const key = `${f.category}|${f.path}|${(f as any).line || 0}|${(f as any).class || (f as any).advisoryId || ''}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+
         const counts = {
-          total: combined.length,
-          critical: combined.filter(f => f.severity === 'CRITICAL').length,
-          high: combined.filter(f => f.severity === 'HIGH').length,
-          medium: combined.filter(f => f.severity === 'MEDIUM').length,
-          low: combined.filter(f => f.severity === 'LOW').length,
-          hasCritical: combined.some(f => f.severity === 'CRITICAL' || f.severity === 'HIGH')
+          total: deduped.length,
+          critical: deduped.filter(f => f.severity === 'CRITICAL').length,
+          high: deduped.filter(f => f.severity === 'HIGH').length,
+          medium: deduped.filter(f => f.severity === 'MEDIUM').length,
+          low: deduped.filter(f => f.severity === 'LOW').length,
+          hasCritical: deduped.some(f => f.severity === 'CRITICAL' || f.severity === 'HIGH')
         };
 
         return {
-          allFindings: combined,
-          findings: combined,
+          allFindings: deduped,
+          findings: deduped,
           counts,
           hasCritical: counts.hasCritical,
           totalCount: counts.total
@@ -499,7 +510,7 @@ export class NodeRegistry {
       category: 'Logic',
       icon: 'GitFork',
       color: '#EAB308', // Yellow
-      description: 'Ветвление сценария в зависимости от условия (наличие критичных уязвимостей)',
+      description: 'Ветвление сценария в зависимости от условия (наличие критичных уязвимостей или сравнение)',
       inputs: [{ id: 'input', label: 'Входные данные', type: 'any' }],
       outputs: [
         { id: 'true', label: 'Да (True)', type: 'any' },
@@ -507,8 +518,18 @@ export class NodeRegistry {
       ],
       settings: [
         {
+          name: 'mode',
+          label: 'Режим условия',
+          type: 'select',
+          default: 'rule',
+          options: [
+            { label: 'Предустановленные правила безопасности', value: 'rule' },
+            { label: 'Пользовательское сравнение значений (Compare)', value: 'compare' }
+          ]
+        },
+        {
           name: 'rule',
-          label: 'Условие проверки',
+          label: 'Условие проверки (для режима Правила)',
           type: 'select',
           default: 'has_critical',
           options: [
@@ -518,22 +539,68 @@ export class NodeRegistry {
             { label: 'Количество уязвимостей превышает порог', value: 'threshold_count' }
           ]
         },
-        { name: 'threshold', label: 'Порог количества (для правила Порог)', type: 'number', default: 1 }
+        { name: 'threshold', label: 'Порог количества (для правила Порог)', type: 'number', default: 1 },
+        { name: 'compareField', label: 'Поле для сравнения (например, counts.critical или totalCount)', type: 'string', default: 'totalCount' },
+        {
+          name: 'compareOperator',
+          label: 'Оператор сравнения',
+          type: 'select',
+          default: '>',
+          options: [
+            { label: '> (Больше)', value: '>' },
+            { label: '< (Меньше)', value: '<' },
+            { label: '>= (Больше или равно)', value: '>=' },
+            { label: '<= (Меньше или равно)', value: '<=' },
+            { label: '== (Равно)', value: '==' },
+            { label: '!= (Не равно)', value: '!=' },
+            { label: 'contains (Содержит подстроку)', value: 'contains' },
+            { label: 'startsWith (Начинается с)', value: 'startsWith' },
+            { label: 'matches (Соответствует регулярному выражению)', value: 'matches' }
+          ]
+        },
+        { name: 'compareValue', label: 'Значение для сравнения', type: 'string', default: '0' }
       ],
       run: async (inputs, settings) => {
         const findings: Finding[] = inputs.allFindings || inputs.findings || [];
-        const rule = settings.rule || 'has_critical';
-        const threshold = Number(settings.threshold) || 1;
-
+        const mode = settings.mode || 'rule';
         let result = false;
-        if (rule === 'has_critical') {
-          result = findings.some(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
-        } else if (rule === 'has_any') {
-          result = findings.length > 0;
-        } else if (rule === 'is_clean') {
-          result = findings.length === 0;
-        } else if (rule === 'threshold_count') {
-          result = findings.length >= threshold;
+
+        if (mode === 'compare') {
+          const fieldPath = String(settings.compareField || 'totalCount').split('.');
+          let val: any = inputs;
+          for (const p of fieldPath) {
+            val = (val && typeof val === 'object') ? val[p] : undefined;
+          }
+          const op = settings.compareOperator || '>';
+          const targetVal = String(settings.compareValue ?? '');
+
+          if (op === '>') result = Number(val) > Number(targetVal);
+          else if (op === '<') result = Number(val) < Number(targetVal);
+          else if (op === '>=') result = Number(val) >= Number(targetVal);
+          else if (op === '<=') result = Number(val) <= Number(targetVal);
+          else if (op === '==') result = String(val) === targetVal;
+          else if (op === '!=') result = String(val) !== targetVal;
+          else if (op === 'contains') result = String(val || '').toLowerCase().includes(targetVal.toLowerCase());
+          else if (op === 'startsWith') result = String(val || '').toLowerCase().startsWith(targetVal.toLowerCase());
+          else if (op === 'matches') {
+            try {
+              result = new RegExp(targetVal, 'i').test(String(val || ''));
+            } catch {
+              result = false;
+            }
+          }
+        } else {
+          const rule = settings.rule || 'has_critical';
+          const threshold = Number(settings.threshold) || 1;
+          if (rule === 'has_critical') {
+            result = findings.some(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
+          } else if (rule === 'has_any') {
+            result = findings.length > 0;
+          } else if (rule === 'is_clean') {
+            result = findings.length === 0;
+          } else if (rule === 'threshold_count') {
+            result = findings.length >= threshold;
+          }
         }
 
         return {
@@ -543,6 +610,78 @@ export class NodeRegistry {
           true: result ? inputs : null,
           false: !result ? inputs : null
         };
+      }
+    });
+
+    this.register({
+      type: 'logic.regex',
+      title: 'Регулярное выражение (Regex)',
+      category: 'Logic',
+      icon: 'Filter',
+      color: '#EAB308',
+      description: 'Фильтрация, извлечение или валидация данных по регулярному выражению',
+      inputs: [{ id: 'input', label: 'Входные данные', type: 'any' }],
+      outputs: [
+        { id: 'output', label: 'Результат', type: 'any' },
+        { id: 'matches', label: 'Совпадения', type: 'any' }
+      ],
+      settings: [
+        { name: 'pattern', label: 'Паттерн Regex', type: 'string', default: '.*' },
+        { name: 'flags', label: 'Флаги (i, g, m)', type: 'string', default: 'i' },
+        {
+          name: 'mode',
+          label: 'Режим работы',
+          type: 'select',
+          default: 'filter',
+          options: [
+            { label: 'Фильтрация элементов массива (filter)', value: 'filter' },
+            { label: 'Проверка условия (test)', value: 'test' },
+            { label: 'Извлечение совпадений (extract)', value: 'extract' }
+          ]
+        },
+        { name: 'field', label: 'Поле объекта (для массива находок/объектов)', type: 'string', default: 'path' }
+      ],
+      run: async (inputs, settings) => {
+        const pattern = settings.pattern || '.*';
+        const flags = settings.flags || 'i';
+        const mode = settings.mode || 'filter';
+        const field = settings.field || '';
+        let re: RegExp;
+        try {
+          re = new RegExp(pattern, flags);
+        } catch {
+          re = /.*/;
+        }
+
+        const data = inputs.input || inputs.findings || inputs.allFindings || inputs;
+
+        if (mode === 'test') {
+          const str = typeof data === 'string' ? data : JSON.stringify(data);
+          const matched = re.test(str);
+          return { result: matched, output: matched ? data : null };
+        } else if (mode === 'filter') {
+          if (Array.isArray(data)) {
+            const filtered = data.filter((item: any) => {
+              if (typeof item === 'string') return re.test(item);
+              if (item && typeof item === 'object') {
+                const val = field ? item[field] : JSON.stringify(item);
+                return re.test(String(val || ''));
+              }
+              return false;
+            });
+            return { output: filtered, matches: filtered, count: filtered.length };
+          } else {
+            const matched = re.test(String(data));
+            return { output: matched ? [data] : [], matches: matched ? [data] : [] };
+          }
+        } else if (mode === 'extract') {
+          const str = typeof data === 'string' ? data : JSON.stringify(data);
+          const effectiveFlags = flags.includes('g') ? flags : flags + 'g';
+          const matches = Array.from(str.matchAll(new RegExp(pattern, effectiveFlags))).map(m => m[0]);
+          return { output: matches, matches, count: matches.length };
+        }
+
+        return { output: data };
       }
     });
 
