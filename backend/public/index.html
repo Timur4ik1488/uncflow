@@ -260,10 +260,43 @@
     <div class="aurora-blob blob-4"></div>
   </div>
 
-  <!-- FLOATING TOP NAVIGATION (Apple Toolbar) -->
-  <header class="relative z-30 px-5 pt-3 pb-2 shrink-0 flex items-center justify-between">
-    <!-- Left: Brand Island -->
-    <div class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2.5 rounded-2xl shadow-md">
+  <!-- FULL BLEED CANVAS (Takes 100% of viewport width and height) -->
+  <main class="fixed inset-0 w-full h-full canvas-grid overflow-hidden cursor-grab active:cursor-grabbing z-0" id="canvas-container">
+    
+    <!-- Transform Viewport: scales and translates together -->
+    <div id="canvas-viewport" class="absolute inset-0" style="transform-origin: 0 0; transform: translate(340px, 110px) scale(0.95);">
+      <!-- SVG Connections Layer -->
+      <svg id="canvas-connections" class="absolute pointer-events-none" style="overflow: visible; width: 1px; height: 1px;">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#6B7280" />
+          </marker>
+          <marker id="arrow-active" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#30D158" />
+          </marker>
+          <marker id="arrow-selected" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#007AFF" />
+          </marker>
+        </defs>
+        <g id="svg-edges-group"></g>
+        <!-- Temporary connection line while user is dragging a wire -->
+        <path id="temp-edge" d="" fill="none" stroke="#007AFF" stroke-width="2.5" stroke-dasharray="4" class="hidden"></path>
+      </svg>
+
+      <!-- Nodes Cards Layer -->
+      <div id="canvas-nodes" class="absolute pointer-events-none" style="width: 1px; height: 1px;">
+        <!-- Node cards are placed here with pointer-events-auto -->
+      </div>
+    </div>
+  </main>
+
+  <!-- FLOATING LIQUID GLASS TOP MENU (Apple Toolbar floating over full canvas) -->
+  <header class="fixed top-3 left-4 right-4 z-40 lg-glass rounded-2xl px-4 py-2 flex items-center justify-between shadow-2xl border border-white/15">
+    <!-- Left: Brand Island & Sidebar Toggle -->
+    <div class="flex items-center space-x-2.5">
+      <button onclick="togglePaletteDrawer()" class="p-1.5 w-7 h-7 rounded-lg bg-white/5 hover:bg-white/15 text-white/70 hover:text-white flex items-center justify-center transition cursor-pointer" title="Скрыть/показать панель блоков">
+        <i class="fa-solid fa-bars text-xs"></i>
+      </button>
       <div class="w-6 h-6 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white shadow-sm">
         <i class="fa-solid fa-shield-halved text-[11px] text-white/90"></i>
       </div>
@@ -273,13 +306,13 @@
     <!-- Center: Workflow Name & Quick Spotlight Pill -->
     <div class="hidden lg:flex items-center space-x-2">
       <!-- Workflow Name Pill -->
-      <div class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2 text-xs rounded-2xl">
+      <div class="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 flex items-center space-x-2 text-xs">
         <i class="fa-solid fa-diagram-project text-xs text-white/70"></i>
         <span id="current-workflow-name" class="font-medium text-gray-200">Комплексный аудит безопасности</span>
       </div>
 
       <!-- Quick Spotlight Launcher Pill -->
-      <button onclick="openSpotlight()" class="lg-button lg-glass px-3.5 py-2 flex items-center space-x-2 text-xs text-gray-300 hover:text-white rounded-2xl transition">
+      <button onclick="openSpotlight()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center space-x-2 text-xs text-gray-300 hover:text-white transition cursor-pointer">
         <i class="fa-solid fa-plus text-xs text-white/70"></i>
         <span class="text-gray-300">Добавить блок...</span>
         <kbd class="px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-mono border border-white/15 text-gray-400">Ctrl+Пробел</kbd>
@@ -287,212 +320,210 @@
     </div>
 
     <!-- Right: Apple Tool Action Buttons -->
-    <div class="flex items-center space-x-2">
-      <button onclick="openAiModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+    <div class="flex items-center space-x-1.5">
+      <button onclick="openAiModal()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 transition cursor-pointer">
         <i class="fa-solid fa-wand-magic-sparkles text-xs text-white/75"></i>
         <span>AI Сценарий</span>
       </button>
 
-      <button onclick="openTemplatesModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+      <button onclick="openTemplatesModal()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 transition cursor-pointer">
         <i class="fa-solid fa-boxes-stacked text-xs text-white/75"></i>
         <span>Шаблоны</span>
       </button>
 
-      <button onclick="openSaveTemplateModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl" title="Сохранить текущий сценарий в PostgreSQL">
+      <button onclick="openSaveTemplateModal()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 transition cursor-pointer" title="Сохранить текущий сценарий в PostgreSQL">
         <i class="fa-solid fa-floppy-disk text-xs text-white/75"></i>
         <span>Сохранить</span>
       </button>
 
-      <button onclick="openCicdModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+      <button onclick="openCicdModal()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 transition cursor-pointer">
         <i class="fa-solid fa-code-branch text-xs text-white/75"></i>
         <span>CI/CD</span>
       </button>
 
-      <button id="header-report-btn" onclick="openReportModal()" class="lg-button lg-glass px-3 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+      <button id="header-report-btn" onclick="openReportModal()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 transition cursor-pointer">
         <i class="fa-solid fa-file-shield text-xs text-white/75"></i>
         <span>Отчёт</span>
       </button>
 
-      <button onclick="openHistoryModal()" data-icon="only" class="lg-button lg-glass p-2 w-9 h-9 flex items-center justify-center text-xs text-gray-300 hover:text-white rounded-2xl" title="История запусков">
+      <button onclick="openHistoryModal()" class="p-1.5 w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-xs text-gray-300 hover:text-white transition cursor-pointer" title="История запусков">
         <i class="fa-solid fa-clock-rotate-left text-xs text-white/75"></i>
       </button>
 
       <!-- User Profile / Auth Button Container -->
       <div id="user-header-container">
-        <button id="header-auth-btn" onclick="openAuthModal()" class="lg-button lg-glass px-3.5 py-2 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 rounded-2xl">
+        <button id="header-auth-btn" onclick="openAuthModal()" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 hover:text-white flex items-center space-x-1.5 transition cursor-pointer">
           <i class="fa-solid fa-user text-xs text-white/75"></i>
           <span>Войти</span>
         </button>
       </div>
 
       <!-- Run Button (Apple Primary Action) -->
-      <button id="run-workflow-btn" onclick="executeCurrentWorkflow()" class="lg-button px-4 py-2 text-xs font-semibold text-white flex items-center space-x-2 rounded-2xl bg-[#007AFF] hover:bg-[#0071E3] active:scale-95 shadow-lg shadow-blue-900/30 border border-blue-400/30 transition cursor-pointer">
+      <button id="run-workflow-btn" onclick="executeCurrentWorkflow()" class="px-3.5 py-1.5 text-xs font-semibold text-white flex items-center space-x-2 rounded-xl bg-[#007AFF] hover:bg-[#0071E3] active:scale-95 shadow-md shadow-blue-900/30 border border-blue-400/30 transition cursor-pointer">
         <i class="fa-solid fa-play text-xs"></i>
         <span>Запустить</span>
       </button>
     </div>
   </header>
 
-  <!-- MAIN WORKSPACE -->
-  <div class="flex-1 flex overflow-hidden relative z-10 p-3 pt-1 gap-3">
-
-    <!-- FLOATING LEFT PALETTE: LIQUID GLASS DRAWER -->
-    <aside id="palette-drawer" class="lg-glass w-72 rounded-3xl flex flex-col z-20 shrink-0 shadow-2xl transition-all duration-300 relative">
-      <!-- Header -->
-      <div class="p-3.5 pb-2.5 border-b border-white/10 flex items-center justify-between">
-        <div class="flex items-center space-x-2">
-          <div class="w-6 h-6 rounded-lg bg-white/10 text-white/80 flex items-center justify-center text-xs border border-white/10">
-            <i class="fa-solid fa-shapes text-[11px]"></i>
-          </div>
-          <span class="font-semibold text-xs text-white uppercase tracking-wider">Блоки</span>
+  <!-- FLOATING LEFT PALETTE: LIQUID GLASS DRAWER (Over full canvas) -->
+  <aside id="palette-drawer" class="fixed top-[66px] left-4 bottom-4 w-72 lg-glass rounded-3xl flex flex-col z-30 shadow-2xl border border-white/15 transition-all duration-300">
+    <!-- Header -->
+    <div class="p-3.5 pb-2.5 border-b border-white/10 flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <div class="w-6 h-6 rounded-lg bg-white/10 text-white/80 flex items-center justify-center text-xs border border-white/10">
+          <i class="fa-solid fa-shapes text-[11px]"></i>
         </div>
-        <button onclick="openSpotlight()" class="text-[11px] text-gray-300 hover:text-white flex items-center space-x-1 lg-button lg-glass px-2.5 py-1 rounded-xl">
-          <i class="fa-solid fa-magnifying-glass text-[9px] text-white/70"></i>
-          <span>Поиск</span>
-        </button>
+        <span class="font-semibold text-xs text-white uppercase tracking-wider">Блоки</span>
+      </div>
+      <button onclick="openSpotlight()" class="text-[11px] text-gray-300 hover:text-white flex items-center space-x-1 lg-button lg-glass px-2.5 py-1 rounded-xl">
+        <i class="fa-solid fa-magnifying-glass text-[9px] text-white/70"></i>
+        <span>Поиск</span>
+      </button>
+    </div>
+
+    <!-- Search & Category Filters -->
+    <div class="p-3 space-y-2.5 border-b border-white/10">
+      <div class="relative">
+        <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400 text-xs"></i>
+        <input type="text" id="node-search" placeholder="Поиск блоков..." oninput="filterPalette()"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+               class="w-full bg-black/25 text-xs rounded-xl pl-8 pr-3 py-2 border border-white/15 focus:outline-none focus:border-white/35 text-gray-100 placeholder-gray-400 backdrop-blur-md">
       </div>
 
-      <!-- Search & Category Filters -->
-      <div class="p-3 space-y-2.5 border-b border-white/10">
-        <div class="relative">
-          <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400 text-xs"></i>
-          <input type="text" id="node-search" placeholder="Поиск блоков..." oninput="filterPalette()"
-                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                 class="w-full bg-black/25 text-xs rounded-xl pl-8 pr-3 py-2 border border-white/15 focus:outline-none focus:border-white/35 text-gray-100 placeholder-gray-400 backdrop-blur-md">
+      <!-- Category Segmented Control (Apple style) -->
+      <div class="lg-segmented flex items-center space-x-1 text-[11px]">
+        <button onclick="setPaletteCategory('all')" id="cat-btn-all" class="lg-segmented-btn active flex-1 py-1 text-center font-medium">Все</button>
+        <button onclick="setPaletteCategory('Sources')" id="cat-btn-Sources" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Входы</button>
+        <button onclick="setPaletteCategory('Scanners')" id="cat-btn-Scanners" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Аудит</button>
+        <button onclick="setPaletteCategory('AI')" id="cat-btn-AI" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">AI</button>
+        <button onclick="setPaletteCategory('Logic')" id="cat-btn-Logic" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Логика</button>
+      </div>
+    </div>
+
+    <!-- Categories & Cards List -->
+    <div class="flex-1 overflow-y-auto p-3 space-y-3" id="palette-categories">
+      <!-- Rendered via JS -->
+    </div>
+  </aside>
+
+  <!-- FLOATING RIGHT PANEL: LIQUID GLASS NODE INSPECTOR (Over full canvas) -->
+  <aside id="inspector-panel" class="fixed top-[66px] right-4 bottom-4 w-80 lg-glass rounded-3xl flex flex-col z-30 shadow-2xl border border-white/15 transition-all duration-300">
+    <div class="p-3.5 border-b border-white/10 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div id="inspector-node-icon" class="w-7 h-7 rounded-xl flex items-center justify-center text-xs bg-white/10 text-white/90 border border-white/15 shadow-sm">
+          <i class="fa-solid fa-cube"></i>
         </div>
-
-        <!-- Category Segmented Control (Apple style) -->
-        <div class="lg-segmented flex items-center space-x-1 text-[11px]">
-          <button onclick="setPaletteCategory('all')" id="cat-btn-all" class="lg-segmented-btn active flex-1 py-1 text-center font-medium">Все</button>
-          <button onclick="setPaletteCategory('Sources')" id="cat-btn-Sources" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Входы</button>
-          <button onclick="setPaletteCategory('Scanners')" id="cat-btn-Scanners" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Аудит</button>
-          <button onclick="setPaletteCategory('AI')" id="cat-btn-AI" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">AI</button>
-          <button onclick="setPaletteCategory('Logic')" id="cat-btn-Logic" class="lg-segmented-btn flex-1 py-1 text-center font-medium text-gray-400 hover:text-gray-200">Логика</button>
-        </div>
+        <span id="inspector-node-title" class="font-semibold text-xs text-white truncate max-w-[180px]">Инспектор блока</span>
       </div>
+      <button onclick="closeInspector()" class="text-gray-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+    </div>
 
-      <!-- Categories & Cards List -->
-      <div class="flex-1 overflow-y-auto p-3 space-y-3" id="palette-categories">
-        <!-- Rendered via JS -->
-      </div>
-    </aside>
-
-    <!-- CENTER CANVAS (WITH PAN & ZOOM) -->
-    <main class="flex-1 relative canvas-grid overflow-hidden rounded-3xl border border-white/10 cursor-grab active:cursor-grabbing backdrop-blur-sm" id="canvas-container">
-      
-      <!-- Transform Viewport: scales and translates together -->
-      <div id="canvas-viewport" class="absolute inset-0" style="transform-origin: 0 0; transform: translate(80px, 80px) scale(0.95);">
-        <!-- SVG Connections Layer -->
-        <svg id="canvas-connections" class="absolute pointer-events-none" style="overflow: visible; width: 1px; height: 1px;">
-          <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#6B7280" />
-            </marker>
-            <marker id="arrow-active" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#10B981" />
-            </marker>
-            <marker id="arrow-selected" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#38BDF8" />
-            </marker>
-          </defs>
-          <g id="svg-edges-group"></g>
-          <!-- Temporary connection line while user is dragging a wire -->
-          <path id="temp-edge" d="" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="4" class="hidden"></path>
-        </svg>
-
-        <!-- Nodes Cards Layer -->
-        <div id="canvas-nodes" class="absolute pointer-events-none" style="width: 1px; height: 1px;">
-          <!-- Node cards are placed here with pointer-events-auto -->
-        </div>
-      </div>
-
-      <!-- FLOATING LIQUID BOTTOM DOCK (iOS 27 Vision Island) -->
-      <div id="bottom-dock" class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-1.5 lg-glass p-2 px-4 shadow-2xl border border-white/20 rounded-full" style="border-radius: 9999px !important;">
-        <!-- Quick Run Audit -->
-        <button id="dock-run-btn" onclick="executeCurrentWorkflow()" data-variant="filled" class="lg-button lg-glass px-4 py-1.5 text-xs font-semibold text-white flex items-center space-x-1.5 rounded-full" style="border-radius: 9999px !important;">
-          <i class="fa-solid fa-play text-[11px]"></i>
-          <span>Запуск</span>
+    <!-- Inspector Tabs (Apple segmented) -->
+    <div class="p-2 border-b border-white/10">
+      <div class="lg-segmented flex items-center space-x-1 text-xs">
+        <button onclick="switchInspectorTab('settings')" id="tab-btn-settings" class="lg-segmented-btn active flex-1 py-1.5 font-medium">
+          Настройки
         </button>
-
-        <div class="w-px h-5 bg-white/20 mx-1"></div>
-
-        <!-- Zoom Controls -->
-        <button onclick="changeZoom(-0.1)" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition" title="Отдалить (-)">
-          <i class="fa-solid fa-minus text-[11px]"></i>
-        </button>
-        <span id="zoom-indicator" class="px-1 text-xs font-mono font-semibold text-gray-300">95%</span>
-        <button onclick="changeZoom(0.1)" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition" title="Приблизить (+)">
-          <i class="fa-solid fa-plus text-[11px]"></i>
-        </button>
-
-        <button onclick="resetZoom()" class="px-2.5 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-xs text-gray-300 hover:text-white transition" title="Сбросить 100% (1)">
-          100%
-        </button>
-
-        <button onclick="fitView()" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition" title="Вписать в экран (F)">
-          <i class="fa-solid fa-expand text-[11px]"></i>
-        </button>
-
-        <div class="w-px h-5 bg-white/20 mx-1"></div>
-
-        <!-- DAG Auto Layout -->
-        <button onclick="autoLayout()" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-purple-400 hover:text-purple-300 transition" title="Авто-раскладка DAG (Shift+L)">
-          <i class="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
-        </button>
-
-        <!-- Quick Add Node via Spotlight -->
-        <button onclick="openSpotlight()" class="px-3 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-xs text-cyan-400 hover:text-cyan-300 transition space-x-1" title="Добавить блок (Tab / Ctrl+Пробел)">
-          <i class="fa-solid fa-plus text-[10px]"></i>
-          <span class="text-[11px] font-medium">Нода</span>
-        </button>
-
-        <div class="w-px h-5 bg-white/20 mx-1"></div>
-
-        <!-- Shortcuts Cheatsheet -->
-        <button onclick="openShortcutsModal()" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-yellow-400 hover:text-yellow-300 transition" title="Горячие клавиши (?)">
-          <i class="fa-solid fa-keyboard text-[11px]"></i>
+        <button onclick="switchInspectorTab('data')" id="tab-btn-data" class="lg-segmented-btn flex-1 py-1.5 font-medium text-gray-400 hover:text-gray-200">
+          Данные (I/O)
         </button>
       </div>
+    </div>
 
-      <!-- Live Notification Banner -->
-      <div id="live-banner" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-emerald-950/80 border border-emerald-400/40 text-emerald-200 text-xs flex items-center space-x-2 shadow-2xl backdrop-blur-md">
-        <i class="fa-solid fa-circle-notch fa-spin"></i>
-        <span id="live-banner-text">Выполнение сценария...</span>
-      </div>
-    </main>
-
-    <!-- RIGHT PANEL: LIQUID GLASS NODE INSPECTOR (glisse) -->
-    <aside id="inspector-panel" class="lg-glass w-80 rounded-3xl flex flex-col z-20 shrink-0 shadow-2xl transition-all duration-300">
-      <div class="p-3.5 border-b border-white/10 flex items-center justify-between">
-        <div class="flex items-center space-x-2.5">
-          <div id="inspector-node-icon" class="w-7 h-7 rounded-xl flex items-center justify-center text-xs bg-white/10 text-white/90 border border-white/15 shadow-sm">
-            <i class="fa-solid fa-cube"></i>
-          </div>
-          <span id="inspector-node-title" class="font-bold text-xs text-white truncate max-w-[180px]">Инспектор блока</span>
-        </div>
-        <button onclick="closeInspector()" class="text-gray-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition">
-          <i class="fa-solid fa-xmark text-sm"></i>
-        </button>
-      </div>
-
-      <!-- Inspector Tabs (glisse segmented) -->
-      <div class="p-2 border-b border-white/10">
-        <div class="lg-segmented flex items-center space-x-1 text-xs">
-          <button onclick="switchInspectorTab('settings')" id="tab-btn-settings" class="lg-segmented-btn active flex-1 py-1.5 font-medium">
-            Настройки
-          </button>
-          <button onclick="switchInspectorTab('data')" id="tab-btn-data" class="lg-segmented-btn flex-1 py-1.5 font-medium text-gray-400 hover:text-gray-200">
-            Данные (I/O)
-          </button>
+    <!-- Tab Content: Settings -->
+    <div id="inspector-tab-settings" class="flex-1 overflow-y-auto p-4 space-y-4">
+      <div id="inspector-settings-form" class="space-y-3">
+        <div class="py-12 text-center text-xs text-gray-500">
+          <i class="fa-solid fa-arrow-pointer text-gray-600 text-lg mb-2 block"></i>
+          <span>Выберите блок на холсте</span>
         </div>
       </div>
 
-      <!-- Tab Content: Settings -->
-      <div id="inspector-tab-settings" class="flex-1 overflow-y-auto p-4 space-y-4">
-        <div id="inspector-settings-form" class="space-y-3">
-          <div class="py-12 text-center text-xs text-gray-500">
-            <i class="fa-solid fa-arrow-pointer text-gray-600 text-lg mb-2 block"></i>
-            <span>Выберите блок на холсте</span>
+      <!-- Action Buttons for Selected Node -->
+      <div id="inspector-actions" class="hidden pt-2 border-t border-white/10 space-y-2">
+        <button onclick="executeSingleNode()" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-1.5 transition cursor-pointer">
+          <i class="fa-solid fa-play text-xs text-white/80"></i>
+          <span>Запустить этот блок отдельно</span>
+        </button>
+        <button onclick="deleteSelectedNode()" class="w-full py-2 px-3 rounded-xl bg-red-950/30 hover:bg-red-900/40 text-xs font-medium text-red-300 border border-red-500/30 flex items-center justify-center space-x-1.5 transition cursor-pointer">
+          <i class="fa-solid fa-trash-can text-xs"></i>
+          <span>Удалить блок (Del)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tab Content: Data (I/O) -->
+    <div id="inspector-tab-data" class="hidden flex-1 overflow-y-auto p-4 space-y-3 text-xs">
+      <div>
+        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Входные данные:</span>
+        <pre id="inspector-input-json" class="p-2.5 rounded-xl bg-black/40 border border-white/10 text-gray-300 font-mono text-[11px] overflow-x-auto max-h-48">{}</pre>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Выходные данные:</span>
+          <span id="inspector-output-badge" class="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-300 font-mono">0 keys</span>
+        </div>
+        <pre id="inspector-output-json" class="p-2.5 rounded-xl bg-black/40 border border-white/10 text-emerald-300 font-mono text-[11px] overflow-x-auto max-h-56">{}</pre>
+      </div>
+    </div>
+  </aside>
+
+  <!-- FLOATING LIQUID BOTTOM DOCK (Centered over canvas) -->
+  <div id="bottom-dock" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-35 flex items-center space-x-1.5 lg-glass p-2 px-4 shadow-2xl border border-white/15 rounded-full" style="border-radius: 9999px !important;">
+    <!-- Quick Run Audit -->
+    <button id="dock-run-btn" onclick="executeCurrentWorkflow()" class="px-3.5 py-1 text-xs font-semibold text-white flex items-center space-x-1.5 rounded-full bg-[#007AFF] hover:bg-[#0071E3] active:scale-95 shadow-md shadow-blue-900/30 border border-blue-400/30 transition cursor-pointer" style="border-radius: 9999px !important;">
+      <i class="fa-solid fa-play text-[10px]"></i>
+      <span>Запуск</span>
+    </button>
+
+    <div class="w-px h-5 bg-white/20 mx-1"></div>
+
+    <!-- Zoom Controls -->
+    <button onclick="changeZoom(-0.1)" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition cursor-pointer" title="Отдалить (-)">
+      <i class="fa-solid fa-minus text-[11px]"></i>
+    </button>
+    <span id="zoom-indicator" class="px-1 text-xs font-mono font-semibold text-gray-300">95%</span>
+    <button onclick="changeZoom(0.1)" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition cursor-pointer" title="Приблизить (+)">
+      <i class="fa-solid fa-plus text-[11px]"></i>
+    </button>
+
+    <button onclick="resetZoom()" class="px-2.5 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-xs text-gray-300 hover:text-white transition cursor-pointer" title="Сбросить 100% (1)">
+      100%
+    </button>
+
+    <button onclick="fitView()" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition cursor-pointer" title="Вписать в экран (F)">
+      <i class="fa-solid fa-expand text-[11px]"></i>
+    </button>
+
+    <div class="w-px h-5 bg-white/20 mx-1"></div>
+
+    <!-- DAG Auto Layout -->
+    <button onclick="autoLayout()" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-white/80 hover:text-white transition cursor-pointer" title="Авто-раскладка DAG (Shift+L)">
+      <i class="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
+    </button>
+
+    <!-- Quick Add Node via Spotlight -->
+    <button onclick="openSpotlight()" class="px-3 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-xs text-white/80 hover:text-white transition space-x-1 cursor-pointer" title="Добавить блок (Tab / Ctrl+Пробел)">
+      <i class="fa-solid fa-plus text-[10px]"></i>
+      <span class="text-[11px] font-medium">Нода</span>
+    </button>
+
+    <div class="w-px h-5 bg-white/20 mx-1"></div>
+
+    <!-- Shortcuts Cheatsheet -->
+    <button onclick="openShortcutsModal()" class="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-full text-white/80 hover:text-white transition cursor-pointer" title="Горячие клавиши (?)">
+      <i class="fa-solid fa-keyboard text-[11px]"></i>
+    </button>
+  </div>
+
+  <!-- Live Notification Banner (Floating over canvas) -->
+  <div id="live-banner" class="hidden fixed top-[72px] left-1/2 -translate-x-1/2 z-45 px-4 py-2 rounded-full bg-emerald-950/80 border border-emerald-400/40 text-emerald-200 text-xs flex items-center space-x-2 shadow-2xl backdrop-blur-md">
+    <i class="fa-solid fa-circle-notch fa-spin"></i>
+    <span id="live-banner-text">Выполнение сценария...</span>
+  </div>
           </div>
         </div>
 
@@ -1382,7 +1413,7 @@
     let currentReportBranch = 'main';
 
     // Pan & Zoom State
-    let pan = { x: 80, y: 80 };
+    let pan = { x: 340, y: 110 };
     let zoom = 0.95;
     let isPanning = false;
     let panStart = { x: 0, y: 0 };
@@ -1605,7 +1636,7 @@
 
     function resetZoom() {
       zoom = 1.0;
-      pan = { x: 80, y: 80 };
+      pan = { x: 340, y: 110 };
       updateViewportTransform();
       renderConnections();
     }
@@ -1910,8 +1941,24 @@
     });
 
     // ==============================================================
-    // PALETTE RENDERING (Left Drawer)
+    // PALETTE RENDERING & DRAWER VISIBILITY
     // ==============================================================
+    let isPaletteVisible = true;
+    function togglePaletteDrawer() {
+      const drawer = document.getElementById('palette-drawer');
+      if (!drawer) return;
+      isPaletteVisible = !isPaletteVisible;
+      if (isPaletteVisible) {
+        drawer.style.transform = 'translateX(0)';
+        drawer.style.opacity = '1';
+        drawer.style.pointerEvents = 'auto';
+      } else {
+        drawer.style.transform = 'translateX(-320px)';
+        drawer.style.opacity = '0';
+        drawer.style.pointerEvents = 'none';
+      }
+    }
+
     function setPaletteCategory(cat) {
       currentPaletteCategory = cat;
       ['all', 'Sources', 'Scanners', 'AI', 'Logic'].forEach(c => {
