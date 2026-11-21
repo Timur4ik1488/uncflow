@@ -520,13 +520,70 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 4. POST /api/ai/generate-workflow
-    if (req.method === 'POST' && pathname === '/api/ai/generate-workflow') {
+    // 4. POST /api/ai/generate-workflow & /api/ai/generate
+    if (req.method === 'POST' && (pathname === '/api/ai/generate-workflow' || pathname === '/api/ai/generate')) {
+      const user = await getUserFromRequest(req);
       const body = await parseJsonBody(req);
       const prompt = body.prompt || '';
       const generatedGraph = AiWorkflowGenerator.generateFromPrompt(prompt);
+
+      // Auto-inject user's vault tokens into generated graph
+      if (user) {
+        for (const node of generatedGraph.nodes) {
+          node.settings = node.settings || {};
+          if (node.type === 'ai.explainer' || node.type === 'ai.gigachat') {
+            if (user.gigachatCredentials) {
+              node.settings.provider = 'gigachat';
+              node.settings.credentials = user.gigachatCredentials;
+            }
+            if (user.gigachatScope) node.settings.scope = user.gigachatScope;
+          }
+          if (node.type === 'notify.channel' || node.type === 'notify.telegram') {
+            if (user.telegramBotToken) {
+              node.settings.telegramBotToken = user.telegramBotToken;
+              node.settings.botToken = user.telegramBotToken;
+            }
+            if (user.telegramChatId) {
+              node.settings.telegramChatId = user.telegramChatId;
+              node.settings.chatId = user.telegramChatId;
+            }
+          }
+        }
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(generatedGraph));
+      return;
+    }
+
+    // POST /api/ai/test-gigachat (Verify GigaChat credentials)
+    if (req.method === 'POST' && pathname === '/api/ai/test-gigachat') {
+      const user = await getUserFromRequest(req);
+      const body = await parseJsonBody(req);
+      const creds = (body.credentials || user?.gigachatCredentials || process.env.GIGACHAT_CREDENTIALS || '').trim();
+      const scope = (body.scope || user?.gigachatScope || process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS').trim();
+
+      if (!creds) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Авторизационные данные GigaChat не указаны (отсутствуют в запросе, профиле и .env)' }));
+        return;
+      }
+
+      try {
+        const { GigaChatClient } = await import('./ai/security-categorizer.ts');
+        const client = GigaChatClient.getInstance();
+        client.reloadConfig(creds, scope);
+        const token = await client.getToken();
+        if (token) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, message: 'Сбер GigaChat API подключён успешно!' }));
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Не удалось получить токен Сбер GigaChat. Проверьте Base64 ключ в профиле.' }));
+        }
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
       return;
     }
 
@@ -563,18 +620,22 @@ const server = http.createServer(async (req, res) => {
               }
             }
           } else if (node.type === 'ai.explainer' || node.type === 'ai.gigachat') {
-            if (!node.settings.credentials && user.gigachatCredentials) {
-              node.settings.credentials = user.gigachatCredentials;
+            if (!node.settings.credentials) {
+              node.settings.credentials = user.gigachatCredentials || process.env.GIGACHAT_CREDENTIALS;
             }
-            if (!node.settings.scope && user.gigachatScope) {
-              node.settings.scope = user.gigachatScope;
+            if (!node.settings.scope) {
+              node.settings.scope = user.gigachatScope || process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS';
             }
           } else if (node.type === 'notify.channel' || node.type === 'notify.dispatch' || node.type === 'notify.telegram') {
-            if (!node.settings.telegramBotToken && user.telegramBotToken) {
-              node.settings.telegramBotToken = user.telegramBotToken;
+            if (!node.settings.telegramBotToken && !node.settings.botToken) {
+              node.settings.telegramBotToken = user.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+              node.settings.botToken = user.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
             }
-            if (!node.settings.telegramChatId && user.telegramChatId) {
+            if ((!node.settings.telegramChatId || node.settings.telegramChatId === '@security_audit') && user.telegramChatId) {
               node.settings.telegramChatId = user.telegramChatId;
+            }
+            if ((!node.settings.chatId || node.settings.chatId === '@security_audit') && user.telegramChatId) {
+              node.settings.chatId = user.telegramChatId;
             }
             if (!node.settings.yandexUser && user.yandexMailUser) {
               node.settings.yandexUser = user.yandexMailUser;
@@ -689,11 +750,19 @@ const server = http.createServer(async (req, res) => {
             else if (repoUrl.includes('gitverse.ru') && user.gitverseToken) nodeInstance.settings.token = user.gitverseToken;
           }
         } else if (nodeInstance.type === 'ai.explainer' || nodeInstance.type === 'ai.gigachat') {
-          if (!nodeInstance.settings.credentials && user.gigachatCredentials) nodeInstance.settings.credentials = user.gigachatCredentials;
-          if (!nodeInstance.settings.scope && user.gigachatScope) nodeInstance.settings.scope = user.gigachatScope;
+          if (!nodeInstance.settings.credentials) nodeInstance.settings.credentials = user.gigachatCredentials || process.env.GIGACHAT_CREDENTIALS;
+          if (!nodeInstance.settings.scope) nodeInstance.settings.scope = user.gigachatScope || process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS';
         } else if (nodeInstance.type === 'notify.channel' || nodeInstance.type === 'notify.dispatch' || nodeInstance.type === 'notify.telegram') {
-          if (!nodeInstance.settings.telegramBotToken && user.telegramBotToken) nodeInstance.settings.telegramBotToken = user.telegramBotToken;
-          if (!nodeInstance.settings.telegramChatId && user.telegramChatId) nodeInstance.settings.telegramChatId = user.telegramChatId;
+          if (!nodeInstance.settings.telegramBotToken && !nodeInstance.settings.botToken) {
+            nodeInstance.settings.telegramBotToken = user.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+            nodeInstance.settings.botToken = user.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+          }
+          if ((!nodeInstance.settings.telegramChatId || nodeInstance.settings.telegramChatId === '@security_audit') && user.telegramChatId) {
+            nodeInstance.settings.telegramChatId = user.telegramChatId;
+          }
+          if ((!nodeInstance.settings.chatId || nodeInstance.settings.chatId === '@security_audit') && user.telegramChatId) {
+            nodeInstance.settings.chatId = user.telegramChatId;
+          }
           if (!nodeInstance.settings.yandexUser && user.yandexMailUser) nodeInstance.settings.yandexUser = user.yandexMailUser;
           if (!nodeInstance.settings.yandexPassword && user.yandexMailPassword) nodeInstance.settings.yandexPassword = user.yandexMailPassword;
           if (!nodeInstance.settings.yandexTo && user.yandexMailTo) nodeInstance.settings.yandexTo = user.yandexMailTo;
@@ -854,15 +923,19 @@ const server = http.createServer(async (req, res) => {
 
     // POST /api/notify/test-telegram (Test Telegram bot connectivity)
     if (req.method === 'POST' && pathname === '/api/notify/test-telegram') {
+      const user = await getUserFromRequest(req);
       const body = await parseJsonBody(req);
-      const botToken = (body.botToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
-      const chatId = (body.chatId || process.env.TELEGRAM_CHAT_ID || '').trim();
+      const botToken = (body.botToken || user?.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+      let chatId = (body.chatId || user?.telegramChatId || process.env.TELEGRAM_CHAT_ID || '').trim();
+      if ((!chatId || chatId === '@security_audit') && user?.telegramChatId) {
+        chatId = user.telegramChatId;
+      }
 
       if (!botToken || !chatId) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           success: false,
-          error: 'Не указаны botToken или chatId (и отсутствуют в .env)'
+          error: 'Не указаны botToken или chatId (и отсутствуют в профиле/env)'
         }));
         return;
       }

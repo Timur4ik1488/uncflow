@@ -2906,7 +2906,30 @@
             }
           }
 
-          const val = node.settings[s.name] !== undefined ? node.settings[s.name] : (s.default !== undefined ? s.default : '');
+          let val = node.settings[s.name] !== undefined ? node.settings[s.name] : (s.default !== undefined ? s.default : '');
+          let placeholder = s.description || '';
+          let badgeHtml = '';
+
+          // Auto-reflect Vault profile tokens for telegram and GigaChat
+          if ((s.name === 'telegramBotToken' || s.name === 'botToken') && currentUser?.hasTelegramBotToken) {
+            placeholder = `Привязан токен из Vault (${currentUser.telegramBotTokenMasked})`;
+            badgeHtml = `<div class="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-medium pt-0.5"><i class="fa-solid fa-circle-check"></i><span>Привязан токен из Vault (${currentUser.telegramBotTokenMasked})</span></div>`;
+          } else if ((s.name === 'telegramChatId' || s.name === 'chatId') && currentUser?.telegramChatId) {
+            if (!val || val === '@security_audit') {
+              val = currentUser.telegramChatId;
+              updateNodeSetting(node.id, s.name, currentUser.telegramChatId);
+            }
+            badgeHtml = `
+              <div class="flex items-center justify-between text-[10px] text-gray-400 pt-0.5">
+                <span>Ваш чат: <strong class="text-white">${currentUser.telegramChatId}</strong></span>
+                <button type="button" onclick="updateNodeSetting('${node.id}', '${s.name}', '${currentUser.telegramChatId}'); selectNode('${node.id}');" class="text-cyan-400 hover:underline">Подставить мой чат</button>
+              </div>
+            `;
+          } else if (s.name === 'credentials' && (node.type === 'ai.explainer' || node.type === 'ai.gigachat') && currentUser?.hasGigachatCredentials) {
+            placeholder = `Привязан ключ из Vault (${currentUser.gigachatCredentialsMasked})`;
+            badgeHtml = `<div class="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-medium pt-0.5"><i class="fa-solid fa-circle-check"></i><span>Ключ GigaChat API привязан из Vault (${currentUser.gigachatCredentialsMasked})</span></div>`;
+          }
+
           const row = document.createElement('div');
           row.className = 'space-y-1';
 
@@ -2939,6 +2962,7 @@
             inputHtml = `
               <div class="relative">
                 <input id="${fieldId}" type="password" value="${escapeHtml(String(val))}"
+                       placeholder="${escapeHtml(placeholder)}"
                        oninput="updateNodeSetting('${node.id}', '${s.name}', this.value)"
                        readonly onfocus="this.removeAttribute('readonly');"
                        autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -2952,6 +2976,7 @@
           } else if (s.type === 'number') {
             inputHtml = `
               <input type="number" step="any" value="${val}"
+                     placeholder="${escapeHtml(placeholder)}"
                      oninput="updateNodeSetting('${node.id}', '${s.name}', Number(this.value))"
                      readonly onfocus="this.removeAttribute('readonly');"
                      autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -2961,6 +2986,7 @@
           } else {
             inputHtml = `
               <input type="text" value="${escapeHtml(String(val))}"
+                     placeholder="${escapeHtml(placeholder)}"
                      oninput="updateNodeSetting('${node.id}', '${s.name}', this.value)"
                      readonly onfocus="this.removeAttribute('readonly');"
                      autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -2975,10 +3001,12 @@
                 <span>${s.label}</span>
               </label>
               ${inputHtml}
+              ${badgeHtml}
             `;
           } else {
             row.innerHTML = `
               ${inputHtml}
+              ${badgeHtml}
             `;
           }
 
@@ -3299,13 +3327,22 @@
         let channelLabel = 'Telegram';
         let testBtnHtml = '';
 
+        const isTgConfigured = currentUser?.hasTelegramBotToken;
         if (activeChannel === 'telegram') {
           channelLabel = 'Telegram';
           testBtnHtml = `
-            <button type="button" onclick="testTelegramSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
-              <i class="fa-brands fa-telegram text-sm text-white/80"></i>
-              <span>Отправить тестовое сообщение в Telegram</span>
-            </button>
+            <div class="space-y-2">
+              ${currentUser?.telegramChatId ? `
+                <button type="button" onclick="applyUserTelegramToNode('${node.id}')" class="w-full py-1.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-xs font-medium text-emerald-300 border border-emerald-500/30 flex items-center justify-center space-x-2 transition cursor-pointer">
+                  <i class="fa-solid fa-wand-magic-sparkles text-emerald-400"></i>
+                  <span>Вставить мой Chat ID (${currentUser.telegramChatId})</span>
+                </button>
+              ` : ''}
+              <button type="button" onclick="testTelegramSend('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
+                <i class="fa-brands fa-telegram text-sm text-cyan-400"></i>
+                <span>Отправить тестовое сообщение в Telegram</span>
+              </button>
+            </div>
           `;
         } else if (activeChannel === 'yandex') {
           channelLabel = 'Яндекс Почта';
@@ -3328,7 +3365,9 @@
         box.innerHTML = `
           <div class="flex items-center justify-between">
             <span class="font-medium text-white text-xs">Канал: ${channelLabel}</span>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">.env Auto</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full ${isTgConfigured && activeChannel === 'telegram' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/10 text-white/70'} font-mono">
+              ${isTgConfigured && activeChannel === 'telegram' ? '<i class="fa-solid fa-check mr-1"></i>Vault (@tikitok161bot)' : '.env / Vault'}
+            </span>
           </div>
           <div class="pt-0.5">
             ${testBtnHtml}
@@ -3339,19 +3378,26 @@
 
       // 4. AI Node Helper
       if (node.type === 'ai.explainer' || node.type === 'ai.gigachat') {
+        const isGigaConfigured = currentUser?.hasGigachatCredentials;
         const box = document.createElement('div');
-        box.className = 'p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 text-xs mt-3';
+        box.className = 'p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2.5 text-xs mt-3';
         box.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-wand-magic-sparkles text-white/80"></i>
-              <span class="font-medium text-white text-xs">Генерация отчёта AI</span>
+              <i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i>
+              <span class="font-medium text-white text-xs">Анализ уязвимостей & Патчи</span>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">GigaChat-Pro</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full ${isGigaConfigured ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/10 text-white/70'} font-mono">
+              ${isGigaConfigured ? '<i class="fa-solid fa-check mr-1"></i>GigaChat-Pro (Vault)' : 'GigaChat-Pro'}
+            </span>
           </div>
           <p class="text-[11px] text-gray-300 leading-snug">
-            Анализ уязвимостей и рекомендации по исправлению. Ключ автоматически считывается из <code class="text-white/90">.env</code>.
+            ${isGigaConfigured ? 'Авторизация Сбер GigaChat активна через ваш зашифрованный профиль (Vault).' : 'Для генерации отчётов укажите ключ в профиле или оставьте для чтения из <code class="text-white/90">.env</code>.'}
           </p>
+          <button type="button" onclick="testGigaChat('${node.id}')" class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-white border border-white/10 flex items-center justify-center space-x-2 transition cursor-pointer">
+            <i class="fa-solid fa-bolt text-cyan-400"></i>
+            <span>Проверить соединение со Сбер GigaChat</span>
+          </button>
         `;
         form.appendChild(box);
       }
@@ -3389,16 +3435,32 @@
       await executeCurrentWorkflow();
     }
 
+    function applyUserTelegramToNode(nodeId) {
+      if (!currentUser) return;
+      if (currentUser.telegramChatId) {
+        updateNodeSetting(nodeId, 'telegramChatId', currentUser.telegramChatId);
+        updateNodeSetting(nodeId, 'chatId', currentUser.telegramChatId);
+      }
+      selectNode(nodeId);
+      showBanner(`Вставлен ваш Telegram Chat ID: ${currentUser.telegramChatId}`);
+      setTimeout(hideBanner, 2000);
+    }
+
     async function testTelegramSend(nodeId) {
       const node = currentWorkflow?.nodes?.find(n => n.id === nodeId);
-      const botToken = node?.settings?.telegramBotToken || '';
-      const chatId = node?.settings?.telegramChatId || '';
+      const botToken = node?.settings?.telegramBotToken || node?.settings?.botToken || '';
+      let chatId = node?.settings?.telegramChatId || node?.settings?.chatId || '';
+      if ((!chatId || chatId === '@security_audit') && currentUser?.telegramChatId) {
+        chatId = currentUser.telegramChatId;
+      }
 
       showBanner('Проверка отправки в Telegram...', true);
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) headers['Authorization'] = 'Bearer ' + currentAuthToken;
         const res = await fetch('/api/notify/test-telegram', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ botToken, chatId })
         });
         const data = await res.json();
@@ -3410,6 +3472,32 @@
         }
       } catch (err) {
         showBanner('Ошибка связи с Telegram: ' + err.message);
+      }
+    }
+
+    async function testGigaChat(nodeId) {
+      const node = currentWorkflow?.nodes?.find(n => n.id === nodeId);
+      const credentials = node?.settings?.credentials || '';
+      const scope = node?.settings?.scope || 'GIGACHAT_API_PERS';
+
+      showBanner('Проверка подключения к Сбер GigaChat API...', true);
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) headers['Authorization'] = 'Bearer ' + currentAuthToken;
+        const res = await fetch('/api/ai/test-gigachat', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ credentials, scope })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showBanner('Сбер GigaChat API подключён успешно!');
+          setTimeout(hideBanner, 3000);
+        } else {
+          showBanner(`GigaChat: ${data.error || 'Ошибка авторизации'}`);
+        }
+      } catch (err) {
+        showBanner('Ошибка связи с GigaChat: ' + err.message);
       }
     }
 
@@ -3901,9 +3989,11 @@
       updateNodeCardVisual(nodeId, 'running');
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) headers['Authorization'] = 'Bearer ' + currentAuthToken;
         const res = await fetch('/api/node/execute', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ node, inputs: {} })
         });
         const data = await res.json();
@@ -3970,13 +4060,15 @@
       showBanner('AI генерирует сценарий безопасности...', true);
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) headers['Authorization'] = 'Bearer ' + currentAuthToken;
         const res = await fetch('/api/ai/generate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ prompt })
         });
         const graph = await res.json();
-        if (graph.nodes) {
+        if (graph && graph.nodes) {
           pushHistoryState();
           currentWorkflow = graph;
           document.getElementById('current-workflow-name').innerText = graph.name;
@@ -3984,6 +4076,8 @@
           fitView();
           showBanner('AI сценарий успешно сформирован!');
           setTimeout(hideBanner, 2500);
+        } else {
+          showBanner('Не удалось сгенерировать сценарий: ' + (graph.error || 'Ошибка формата'));
         }
       } catch (err) {
         showBanner('Ошибка генерации: ' + err.message);

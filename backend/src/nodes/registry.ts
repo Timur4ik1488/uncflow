@@ -596,11 +596,11 @@ export class NodeRegistry {
         const useGigaChat = settings.provider === 'gigachat';
 
         if (useGigaChat) {
-          const creds = (settings.credentials || '').trim();
+          const creds = (settings.credentials || process.env.GIGACHAT_CREDENTIALS || '').trim();
           if (!creds) {
             throw new Error('Не указаны авторизационные данные Сбер GigaChat! Войдите под test/test или привяжите ключ в профиле пользователя.');
           }
-          GigaChatClient.getInstance().reloadConfig(creds, settings.scope || 'GIGACHAT_API_PERS');
+          GigaChatClient.getInstance().reloadConfig(creds, settings.scope || process.env.GIGACHAT_SCOPE || 'GIGACHAT_API_PERS');
           const token = await GigaChatClient.getInstance().getToken();
           if (!token) {
             throw new Error('Не удалось авторизоваться в Сбер GigaChat! Проверьте правильность GIGACHAT_CREDENTIALS в профиле пользователя.');
