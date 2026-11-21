@@ -12,6 +12,7 @@ import { LlmProviderFactory } from '../ai/llm-provider.ts';
 import { db } from '../storage/db.ts';
 import { sendYandexMail, formatSecurityEmailHtml } from '../notifications/mailer.ts';
 import { sanitizeFindingForExport, validateSubmissionReport } from '../validators/submission-validator.ts';
+import { isPrivateOrLoopbackUrl } from '../validators/ssrf-validator.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -1208,6 +1209,10 @@ export class NodeRegistry {
           };
 
           try {
+            if (isPrivateOrLoopbackUrl(whUrl)) {
+              throw new Error(`SSRF Blocked: Запросы к приватным/петлевым IP (${whUrl}) запрещены политикой платформы.`);
+            }
+
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (whSecret) headers['X-Security-Token'] = whSecret;
 

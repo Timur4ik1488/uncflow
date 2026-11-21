@@ -14,6 +14,8 @@ import { WorkflowScheduler, CronParser } from './engine/scheduler.ts';
 import { sendYandexMail } from './notifications/mailer.ts';
 import type { WorkflowGraph, WorkflowExecutionEvent } from './engine/types.ts';
 import { extractWorkflowFindings } from './engine/workflow-utils.ts';
+import { isPrivateOrLoopbackUrl } from './validators/ssrf-validator.ts';
+import { maskSensitiveText } from './validators/submission-validator.ts';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
@@ -56,11 +58,27 @@ const server = http.createServer(async (req, res) => {
   const pathname = url.pathname;
 
   try {
-    // Serve Web UI Frontend & Static Assets (e.g. /glisse.css, /index.html)
+    // Serve Web UI Frontend & Static Assets (with strict Path Traversal protection)
     if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/' || !pathname.startsWith('/api/'))) {
+      let decodedPath = '';
+      try {
+        decodedPath = decodeURIComponent(pathname);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Bad Request');
+        return;
+      }
+
+      // Block path traversal sequences
+      if (decodedPath.includes('..') || decodedPath.includes('\\')) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Forbidden: Path traversal sequence blocked');
+        return;
+      }
+
       const publicDir = path.resolve(process.cwd(), 'backend', 'public');
-      const targetRelPath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-      const filePath = path.join(publicDir, targetRelPath);
+      const targetRelPath = decodedPath === '/' ? 'index.html' : decodedPath.replace(/^\/+/, '');
+      const filePath = path.resolve(publicDir, targetRelPath);
 
       if (filePath.startsWith(publicDir) && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const ext = path.extname(filePath).toLowerCase();
@@ -493,18 +511,53 @@ const server = http.createServer(async (req, res) => {
         isPublic: body.isPublic !== undefined ? Boolean(body.isPublic) : false,
         graph: body.graph
       };
+
+      // Encrypt sensitive secrets in template settings before persisting
+      if (templateToSave.graph && Array.isArray(templateToSave.graph.nodes)) {
+        const secretKeys = ['botToken', 'telegramBotToken', 'credentials', 'password', 'webhookSecret', 'token', 'apiKey'];
+        for (const node of templateToSave.graph.nodes) {
+          if (node.settings) {
+            for (const k of Object.keys(node.settings)) {
+              if (secretKeys.includes(k) && typeof node.settings[k] === 'string' && node.settings[k].length > 0) {
+                if (!node.settings[k].includes(':')) {
+                  node.settings[k] = SecretVault.encrypt(node.settings[k]);
+                }
+              }
+            }
+          }
+        }
+      }
+
       templates.publish(templateToSave, false);
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: 'Шаблон успешно сохранён в PostgreSQL', template: templateToSave }));
       return;
     }
 
-    // 3b. DELETE /api/templates/:id
+    // 3b. DELETE /api/templates/:id (Protected with IDOR & Built-in checks)
     if (req.method === 'DELETE' && pathname.startsWith('/api/templates/')) {
       const id = pathname.replace('/api/templates/', '');
       const user = await getUserFromRequest(req);
-      const userId = url.searchParams.get('userId') || user?.id || undefined;
-      const deleted = await db.deleteTemplate(id, userId);
+      if (!user) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Необходима авторизация для удаления шаблона' }));
+        return;
+      }
+
+      const existingTpl = templates.getById(id);
+      if (existingTpl && (existingTpl as any).isBuiltin) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Запрещено удалять системные встроенные шаблоны' }));
+        return;
+      }
+
+      if (existingTpl && existingTpl.userId && existingTpl.userId !== user.id && user.id !== 'admin' && existingTpl.userId !== 'default_user') {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Отказано в доступе: вы не являетесь владельцем этого шаблона' }));
+        return;
+      }
+
+      const deleted = await db.deleteTemplate(id, user.id);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: deleted, id }));
       return;
@@ -883,6 +936,13 @@ const server = http.createServer(async (req, res) => {
       if (!targetUrl) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: 'URL вебхука не указан в блоке и отсутствует в .env (WEBHOOK_URL)' }));
+        return;
+      }
+
+      // SSRF Protection: block private and loopback destinations unless explicitly permitted
+      if (isPrivateOrLoopbackUrl(targetUrl)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'SSRF Blocked: Запросы к приватным и петлевым IP адресам запрещены политикой платформы uncflow' }));
         return;
       }
 
@@ -1288,7 +1348,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 function broadcastEvent(event: WorkflowExecutionEvent) {
-  const data = `data: ${JSON.stringify(event)}\n\n`;
+  // Ensure no raw secret values are broadcasted over SSE
+  const safeData = maskSensitiveText(JSON.stringify(event));
+  const data = `data: ${safeData}\n\n`;
   for (const client of sseClients) {
     client.write(data);
   }
