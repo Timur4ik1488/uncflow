@@ -1,0 +1,21 @@
+server:
+  address: 127.0.0.1
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:fleethub;DB_CLOSE_DELAY=-1
+  sql:
+    init:
+      mode: always
+
+billing:
+  export:
+    password: "fh26_db_K4tM9pL2wV7xN3qC"
+
+dispatch:
+  callback:
+    authorization: "Bearer fh26_dispatch_M3xP9vC6nR4wT8jK"
+
+gateway:
+  integration:
+    token: ${FLEET_GATEWAY_TOKEN}

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { ScaFinding } from '../../types/findings.ts';
 import { VersionComparator } from './version-comparator.ts';
+import { stripCommentsPreservingLines } from '../utils/source-utils.ts';
 
 export interface VulnRange {
   lower: string | null;
@@ -113,6 +114,21 @@ export class ScaAnalyzer {
           }
         }
 
+        // Select minimum fixedVersion strictly greater than dep.version
+        let targetFixedVersion: string | undefined;
+        if (vuln.fixedVersions && vuln.fixedVersions.length > 0) {
+          const upgradeCandidates = vuln.fixedVersions.filter(
+            fv => VersionComparator.compare(fv, dep.version) > 0
+          );
+          if (upgradeCandidates.length > 0) {
+            targetFixedVersion = upgradeCandidates.reduce((minVer, curVer) =>
+              VersionComparator.compare(curVer, minVer) < 0 ? curVer : minVer
+            );
+          } else {
+            targetFixedVersion = vuln.fixedVersions[0];
+          }
+        }
+
         findings.push({
           category: 'SCA',
           path: dep.filePath,
@@ -122,8 +138,8 @@ export class ScaAnalyzer {
           advisoryId: advisoryId,
           severity: vuln.severity || 'HIGH',
           description: `Уязвимая версия библиотеки ${dep.group}:${dep.artifact}:${dep.version} (${advisoryId})`,
-          remediation: vuln.fixedVersions && vuln.fixedVersions.length > 0
-            ? `Обновить ${dep.group}:${dep.artifact} до версии ${vuln.fixedVersions[0]} или выше`
+          remediation: targetFixedVersion
+            ? `Обновить ${dep.group}:${dep.artifact} до версии ${targetFixedVersion} или выше`
             : `Обновить зависимость ${dep.group}:${dep.artifact} до безопасной версии`
         });
       }
@@ -175,8 +191,9 @@ export class ScaAnalyzer {
     lockfile: Map<string, string>
   ): DeclaredDependency[] {
     const deps: DeclaredDependency[] = [];
-    const content = fs.readFileSync(buildFilePath, 'utf-8');
-    const lines = content.split('\n');
+    const rawContent = fs.readFileSync(buildFilePath, 'utf-8');
+    const cleanContent = stripCommentsPreservingLines(rawContent);
+    const lines = cleanContent.split('\n');
 
     const localVals = new Map<string, string>();
 

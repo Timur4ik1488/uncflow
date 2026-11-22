@@ -144,6 +144,10 @@ export function extractBraceBlocks(
   const blocks: CodeBlock[] = [];
 
   for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith('import ') || trimmed.startsWith('package ')) {
+      continue;
+    }
     if (startPattern.test(lines[i])) {
       const startLine = i + 1;
       let braceCount = 0;
@@ -154,13 +158,28 @@ export function extractBraceBlocks(
         const cur = lines[j];
         blockLines.push(cur);
 
+        let abortBlock = false;
         for (const char of cur) {
           if (char === '{') {
             braceCount++;
             foundOpen = true;
           } else if (char === '}') {
+            if (!foundOpen) {
+              // Encountered closing brace before opening brace: abort this candidate block
+              abortBlock = true;
+              break;
+            }
             braceCount--;
           }
+        }
+
+        if (abortBlock) {
+          break;
+        }
+
+        if (!foundOpen && j > i + 3) {
+          // No opening brace found within 3 lines: abort this candidate block
+          break;
         }
 
         if (foundOpen && braceCount === 0) {

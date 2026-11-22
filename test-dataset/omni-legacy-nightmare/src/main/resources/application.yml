@@ -1,0 +1,23 @@
+server:
+  address: 127.0.0.1
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:omnilegacy;DB_CLOSE_DELAY=-1
+  sql:
+    init:
+      mode: always
+
+omni:
+  legacy:
+    settlement:
+      vault:
+        password: "om26_yml_R4xN7kP2mV9qL6wB"
+  callback:
+    dispatch:
+      authorization: "Bearer om26_br_G5mP8vJ2dW3sY6zN"
+  mirror:
+    secret: "${MIRROR_SECRET:om26_fb3_C8xM4vK2pR9nW5qJ}"
+  clean:
+    integration:
+      token: ${OMNI_CLEAN_ENV_TOKEN}

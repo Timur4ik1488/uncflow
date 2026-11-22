@@ -15,6 +15,16 @@ interface ControllerEndpoint {
   calledMethods: string[];
 }
 
+interface ServiceMethod {
+  filePath: string;
+  methodName: string;
+  startLine: number;
+  endLine: number;
+  hasPrincipal: boolean;
+  hasSecurityAnnotation: boolean;
+  calledMethods: string[];
+}
+
 interface RepoMethod {
   filePath: string;
   methodName: string;
@@ -33,6 +43,7 @@ export class SastAnalyzer {
 
     // Multi-file index for inter-procedural IDOR analysis
     const controllers: ControllerEndpoint[] = [];
+    const serviceMethods: ServiceMethod[] = [];
     const repoMethods: RepoMethod[] = [];
 
     for (const file of files) {
@@ -54,11 +65,11 @@ export class SastAnalyzer {
       findings.push(...this.checkRouteAuthorization(lines, relPath));
 
       // Indexing for Rule 5: Object Authorization (IDOR)
-      this.indexForObjectAuthorization(lines, relPath, controllers, repoMethods);
+      this.indexForObjectAuthorization(lines, relPath, controllers, serviceMethods, repoMethods);
     }
 
     // Rule 5: Inter-procedural Object Authorization / IDOR (A-SAST-05)
-    findings.push(...this.resolveObjectAuthorization(controllers, repoMethods));
+    findings.push(...this.resolveObjectAuthorization(controllers, serviceMethods, repoMethods));
 
     return findings;
   }
@@ -150,7 +161,16 @@ export class SastAnalyzer {
 
           if ((hasInterpolation || hasConcat) && !isSafelyParameterized && !reportedLines.has(lineNum)) {
             reportedLines.add(lineNum);
-            const range = normalizeFindingRange({ line: lineNum, endLine: lineNum + 1 }, lines);
+            let endLine = lineNum;
+            if (!line.includes(')')) {
+              for (let k = i + 1; k < Math.min(lines.length, i + 10); k++) {
+                if (lines[k].includes(')')) {
+                  endLine = k + 1;
+                  break;
+                }
+              }
+            }
+            const range = normalizeFindingRange({ line: lineNum, endLine }, lines);
             findings.push({
               category: 'SAST',
               path: relPath,
@@ -175,10 +195,73 @@ export class SastAnalyzer {
 
   private checkTlsVerification(lines: string[], relPath: string): SastFinding[] {
     const findings: SastFinding[] = [];
+    const coveredLines = new Set<number>();
+
+    // Clean lines without imports and packages for block extraction
+    const cleanLines = lines.map(l => {
+      const trimmed = l.trim();
+      return (trimmed.startsWith('import ') || trimmed.startsWith('package ')) ? '' : l;
+    });
+
+    // Aggregate empty checkClientTrusted / checkServerTrusted inside each X509TrustManager block (Defect 3)
+    const trustManagerBlocks = extractBraceBlocks(cleanLines, /\bX509TrustManager\b/);
+    for (const block of trustManagerBlocks) {
+      const hasEmptyCheck = /(?:checkClientTrusted|checkServerTrusted)\s*\([^)]*\)\s*(?::\s*[A-Za-z0-9_?<>]+)?\s*\{\s*(?:return;?)?\s*\}/.test(
+        block.content
+      );
+      if (hasEmptyCheck) {
+        const range = normalizeFindingRange({ line: block.startLine, endLine: block.endLine }, lines);
+        findings.push({
+          category: 'SAST',
+          path: relPath,
+          class: 'tls-verification',
+          line: range.line,
+          endLine: range.endLine,
+          severity: 'HIGH',
+          description: 'Пустой метод валидации сертификатов X509TrustManager (отсутствует проверка цепочки сертификатов)',
+          remediation: 'Выполнять полную проверку цепочки сертификатов X509Certificate или использовать дефолтный TrustManager'
+        });
+        for (let ln = block.startLine; ln <= block.endLine; ln++) {
+          coveredLines.add(ln);
+        }
+      }
+    }
+
+    // HostnameVerifier blocks (anonymous object : HostnameVerifier or class : HostnameVerifier)
+    const hostnameVerifierBlocks = extractBraceBlocks(cleanLines, /\bHostnameVerifier\b/);
+    for (const block of hostnameVerifierBlocks) {
+      const hasUnconditionalTrue =
+        /override\s+fun\s+verify\s*\([^)]*\)[^{=]*=\s*true\b/.test(block.content) ||
+        /override\s+fun\s+verify\s*\([^)]*\)\s*(?::\s*[A-Za-z0-9_?<>]+)?\s*\{\s*return\s+true;?\s*\}/.test(block.content) ||
+        (/override\s+fun\s+verify\b/.test(block.content) && /\breturn\s+true\b/.test(block.content));
+
+      if (hasUnconditionalTrue) {
+        const range = normalizeFindingRange({ line: block.startLine, endLine: block.endLine }, lines);
+        findings.push({
+          category: 'SAST',
+          path: relPath,
+          class: 'tls-verification',
+          line: range.line,
+          endLine: range.endLine,
+          severity: 'HIGH',
+          description: 'Отключена проверка имени хоста в TLS (HostnameVerifier безусловно возвращает true)',
+          remediation: 'Использовать штатную валидацию сертификатов и доменных имен JVM без переопределения HostnameVerifier'
+        });
+        for (let ln = block.startLine; ln <= block.endLine; ln++) {
+          coveredLines.add(ln);
+        }
+      }
+    }
 
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
+      if (coveredLines.has(lineNum)) continue;
+
       const line = lines[i];
+      const trimmed = line.trim();
+      if (trimmed.startsWith('import ') || trimmed.startsWith('package ')) {
+        continue;
+      }
 
       const isHostnameVerifier =
         line.includes('hostnameVerifier') ||
@@ -223,7 +306,7 @@ export class SastAnalyzer {
         continue;
       }
 
-      if (line.includes('checkServerTrusted') || line.includes('checkClientTrusted')) {
+      if (!coveredLines.has(lineNum) && (line.includes('checkServerTrusted') || line.includes('checkClientTrusted'))) {
         const nextLines = lines.slice(i, Math.min(lines.length, i + 4)).join(' ');
         if (/\{\s*\}/.test(nextLines) || /\{\s*return;?\s*\}/.test(nextLines)) {
           findings.push({
@@ -236,6 +319,9 @@ export class SastAnalyzer {
             description: 'Пустой метод валидации сертификатов X509TrustManager (отсутствует проверка цепочки сертификатов)',
             remediation: 'Выполнять полную проверку цепочки сертификатов X509Certificate или использовать дефолтный TrustManager'
           });
+          for (let ln = lineNum; ln <= Math.min(lines.length, lineNum + 10); ln++) {
+            coveredLines.add(ln);
+          }
         }
       }
     }
@@ -250,7 +336,13 @@ export class SastAnalyzer {
   private checkCredentialedCors(lines: string[], relPath: string): SastFinding[] {
     const findings: SastFinding[] = [];
 
-    const blocks = extractBraceBlocks(lines, /CorsConfiguration\b|addCorsMappings\b|addMapping\b/);
+    // Extract brace-balanced blocks (from innermost to outermost) to strictly isolate each CORS configuration block (Defect 4)
+    const blocks = extractBraceBlocks(
+      lines,
+      /CorsConfiguration\b|addCorsMappings\b|addMapping\b|CorsFilter\b|corsConfigurationSource\b|\.apply\s*\{|\bfun\s+/
+    ).sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine));
+
+    const claimedLines = new Set<number>();
 
     for (const block of blocks) {
       const blockLines = block.content.split('\n');
@@ -259,13 +351,15 @@ export class SastAnalyzer {
 
       for (let j = 0; j < blockLines.length; j++) {
         const currentLineNum = block.startLine + j;
+        if (claimedLines.has(currentLineNum)) continue;
+
         const bLine = blockLines[j];
 
         const hasWildcardOrigin =
           /\b(allowedOrigins|allowedOriginPatterns|addAllowedOrigin|addAllowedOriginPattern)\b/.test(bLine) &&
           (/["']\*["']/.test(bLine) || /listOf\s*\(\s*["']\*["']\s*\)/.test(bLine));
 
-        if (hasWildcardOrigin) {
+        if (hasWildcardOrigin && wildcardOriginLine === -1) {
           wildcardOriginLine = currentLineNum;
         }
 
@@ -273,14 +367,14 @@ export class SastAnalyzer {
           /\b(allowCredentials|setAllowCredentials)\b/.test(bLine) &&
           (/\btrue\b/.test(bLine) || /\(\s*true\s*\)/.test(bLine));
 
-        if (hasCredentials) {
+        if (hasCredentials && credentialsLine === -1) {
           credentialsLine = currentLineNum;
         }
       }
 
       if (wildcardOriginLine !== -1 && credentialsLine !== -1) {
-        const start = Math.min(wildcardOriginLine, credentialsLine);
-        const end = Math.max(wildcardOriginLine, credentialsLine);
+        const start = Math.max(block.startLine, Math.min(wildcardOriginLine, credentialsLine));
+        const end = Math.min(block.endLine, Math.max(wildcardOriginLine, credentialsLine));
         const range = normalizeFindingRange({ line: start, endLine: end }, lines);
 
         findings.push({
@@ -288,11 +382,15 @@ export class SastAnalyzer {
           path: relPath,
           class: 'credentialed-cors',
           line: range.line,
-          endLine: range.endLine,
+          endLine: range.endLine !== undefined ? Math.min(range.endLine, block.endLine) : undefined,
           severity: 'MEDIUM',
           description: 'Небезопасная конфигурация CORS: разрешены любые источники (*) одновременно с передачей учетных данных (allowCredentials = true)',
           remediation: 'Заменить подстановочный символ * в allowedOriginPatterns на явный список доверенных доменов'
         });
+
+        for (let ln = block.startLine; ln <= block.endLine; ln++) {
+          claimedLines.add(ln);
+        }
       }
     }
 
@@ -429,6 +527,7 @@ export class SastAnalyzer {
     lines: string[],
     relPath: string,
     controllers: ControllerEndpoint[],
+    serviceMethods: ServiceMethod[],
     repoMethods: RepoMethod[]
   ): void {
     const fullText = lines.join('\n');
@@ -437,15 +536,18 @@ export class SastAnalyzer {
       fullText.includes('@Controller') ||
       relPath.includes('Controller');
 
-    const isRepoOrReader =
-      fullText.includes('@Repository') ||
+    const isService =
+      fullText.includes('@Service') ||
       fullText.includes('@Component') ||
-      fullText.includes('jdbc') ||
-      fullText.includes('JdbcTemplate') ||
-      fullText.includes('EntityManager') ||
-      relPath.includes('Reader') ||
-      relPath.includes('Repository') ||
-      relPath.includes('Dao');
+      relPath.includes('Service');
+
+    const hasDataAnnotation =
+      /@(?:Repository|Component|Service)\b/.test(fullText);
+
+    const hasJdbcCalls =
+      /\b(?:jdbc|jdbcTemplate|namedParameterJdbcTemplate)\s*\.\s*(?:query|queryForObject|queryForList|queryForMap)\b/i.test(fullText);
+
+    const isDataAccess = hasDataAnnotation || hasJdbcCalls;
 
     if (isController) {
       for (let i = 0; i < lines.length; i++) {
@@ -487,17 +589,52 @@ export class SastAnalyzer {
       }
     }
 
-    if (isRepoOrReader) {
+    if (isService) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const funMatch = line.match(/fun\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+        if (funMatch) {
+          const methodName = funMatch[1];
+          const paramStr = funMatch[2];
+          const methodLines = lines.slice(i, Math.min(lines.length, i + 25)).join(' ');
+
+          const hasPrincipal =
+            /Principal|Authentication|@AuthenticationPrincipal|SecurityContextHolder/i.test(paramStr) ||
+            /SecurityContextHolder\.getContext\(\)/.test(methodLines);
+
+          const hasSecurityAnnotation =
+            /@PreAuthorize|@PostAuthorize|@Secured/.test(methodLines);
+
+          const calledMethods: string[] = [];
+          const callMatches = methodLines.matchAll(/\b([a-zA-Z0-9_]+)\s*\.\s*([a-zA-Z0-9_]+)\s*\(/g);
+          for (const m of callMatches) {
+            calledMethods.push(m[2]);
+          }
+
+          serviceMethods.push({
+            filePath: relPath,
+            methodName,
+            startLine: i + 1,
+            endLine: Math.min(lines.length, i + 25),
+            hasPrincipal,
+            hasSecurityAnnotation,
+            calledMethods
+          });
+        }
+      }
+    }
+
+    if (isDataAccess) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const funMatch = line.match(/fun\s+([a-zA-Z0-9_]+)\s*\(/);
         if (funMatch) {
           const methodName = funMatch[1];
           const methodStartLine = i + 1;
-          const methodSlice = lines.slice(i, Math.min(lines.length, i + 12));
+          const methodSlice = lines.slice(i, Math.min(lines.length, i + 15));
           const methodText = methodSlice.join(' ');
 
-          const queryMatch = methodText.match(/["'](.*?(?:SELECT|DELETE|UPDATE)\b.*?)["']/i);
+          const queryMatch = methodText.match(/(?:"""|["'])([\s\S]*?(?:SELECT|DELETE|UPDATE)\b[\s\S]*?)(?:"""|["'])/i);
           if (queryMatch) {
             const queryText = queryMatch[1];
             let queryLine = methodStartLine;
@@ -510,11 +647,23 @@ export class SastAnalyzer {
 
             const filtersById = /WHERE\s+[a-zA-Z0-9_]*id\s*=\s*(?:\?|:[a-zA-Z0-9_]+)/i.test(queryText);
 
-            const hasOwnerCheckInQuery =
-              /(?:customer|owner|user|account|client|member|author|tenant)[-_]?id\s*=\s*(?:\?|:[a-zA-Z0-9_]+)/i.test(queryText);
+            const ownerRoots = [
+              'customer', 'owner', 'user', 'account', 'client', 'holder',
+              'beneficiary', 'author', 'member', 'driver', 'tenant', 'profile', 'subscriber'
+            ];
+            const rootsGroup = ownerRoots.join('|');
 
-            const hasOwnerColumnInContext =
-              /(?:customer|owner|user|account|client|member|author|tenant)[-_]?id/i.test(fullText);
+            const ownerQueryRegex = new RegExp(
+              `\\b(?:${rootsGroup})[-_]?(?:id|account|uuid|no|code|ref|key|name)?\\s*=\\s*(?:\\?|:[a-zA-Z0-9_]+)`,
+              'i'
+            );
+            const hasOwnerCheckInQuery = ownerQueryRegex.test(queryText);
+
+            const ownerContextRegex = new RegExp(
+              `\\b(?:${rootsGroup})[-_]?(?:id|account|uuid|no|code|ref|key|name)?\\b|\\b(?:${rootsGroup})(?:Id|Account|Uuid|No|Code|Ref|Key|Name)?\\b`,
+              'i'
+            );
+            const hasOwnerColumnInContext = ownerContextRegex.test(fullText);
 
             if (filtersById) {
               repoMethods.push({
@@ -536,6 +685,7 @@ export class SastAnalyzer {
 
   private resolveObjectAuthorization(
     controllers: ControllerEndpoint[],
+    serviceMethods: ServiceMethod[],
     repoMethods: RepoMethod[]
   ): SastFinding[] {
     const findings: SastFinding[] = [];
@@ -544,12 +694,32 @@ export class SastAnalyzer {
     for (const ctrl of controllers) {
       if (!ctrl.hasPrincipal && !ctrl.hasSecurityAnnotation) {
         for (const repo of repoMethods) {
-          const isDirectlyCalled = ctrl.calledMethods.includes(repo.methodName);
-          const nameMatches = ctrl.methodName.toLowerCase().includes(repo.methodName.toLowerCase()) ||
-            repo.methodName.toLowerCase().includes(ctrl.methodName.toLowerCase()) ||
-            isDirectlyCalled;
+          const isDirectlyCalled =
+            ctrl.calledMethods.includes(repo.methodName) ||
+            ctrl.methodName.toLowerCase().includes(repo.methodName.toLowerCase()) ||
+            repo.methodName.toLowerCase().includes(ctrl.methodName.toLowerCase());
 
-          if (nameMatches && !repo.hasOwnerCheckInQuery && repo.hasOwnerColumnInContext) {
+          let isTwoHopCalled = false;
+          if (!isDirectlyCalled) {
+            for (const svc of serviceMethods) {
+              if (!svc.hasPrincipal && !svc.hasSecurityAnnotation) {
+                const ctrlCallsSvc =
+                  ctrl.calledMethods.includes(svc.methodName) ||
+                  ctrl.methodName.toLowerCase().includes(svc.methodName.toLowerCase());
+                if (ctrlCallsSvc) {
+                  const svcCallsRepo =
+                    svc.calledMethods.includes(repo.methodName) ||
+                    svc.methodName.toLowerCase().includes(repo.methodName.toLowerCase());
+                  if (svcCallsRepo) {
+                    isTwoHopCalled = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          if ((isDirectlyCalled || isTwoHopCalled) && !repo.hasOwnerCheckInQuery && repo.hasOwnerColumnInContext) {
             const repoKey = `${repo.filePath}:${repo.startLine}`;
             if (!reportedRepoMethods.has(repoKey)) {
               reportedRepoMethods.add(repoKey);
