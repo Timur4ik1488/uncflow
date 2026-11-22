@@ -11,7 +11,9 @@
     "test:fixtures": "node --experimental-strip-types backend/test/fixtures.test.ts",
     "eval": "node --experimental-strip-types backend/scripts/eval-scanners.ts",
     "test:workflow": "node --experimental-strip-types backend/test/workflow-engine.test.ts",
-    "test:db": "node --experimental-strip-types backend/test/postgres-storage.test.ts"
+    "test:db": "node --experimental-strip-types backend/test/postgres-storage.test.ts",
+    "build:vscode": "npm run build --prefix vscode-extension",
+    "package:vscode": "npm run package --prefix vscode-extension"
   },
   "dependencies": {
     "pg": "^8.23.1"
