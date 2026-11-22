@@ -2944,22 +2944,23 @@
           row.className = 'space-y-1';
 
           let inputHtml = '';
-          if (node.type === 'source.local' && s.name === 'path') {
-            const pickerId = `folder-picker-${node.id}`;
+          if ((node.type === 'source.local' && s.name === 'path') || (node.type === 'source.archive' && s.name === 'archivePath')) {
+            const pickerId = `archive-picker-${node.id}`;
+            const targetSetting = s.name;
             inputHtml = `
               <div class="space-y-2">
                 <input type="text" value="${escapeHtml(String(val))}"
-                       placeholder="Путь к папке на сервере"
-                       oninput="updateNodeSetting('${node.id}', 'path', this.value)"
+                       placeholder="Путь на сервере (заполняется автоматически)"
+                       oninput="updateNodeSetting('${node.id}', '${targetSetting}', this.value)"
                        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                        class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-mono">
-                <input id="${pickerId}" type="file" webkitdirectory directory multiple hidden
-                       onchange="uploadLocalFolder('${node.id}', this)">
+                <input id="${pickerId}" type="file" accept=".zip,application/zip" hidden
+                       onchange="uploadLocalArchive('${node.id}', this, '${targetSetting}')">
                 <button type="button" onclick="document.getElementById('${pickerId}').click()"
-                        class="liquid-pill w-full py-2 text-xs font-medium text-emerald-300 border-emerald-500/30 bg-emerald-950/30">
-                  <i class="fa-solid fa-folder-open mr-1"></i> Выбрать папку с компьютера
+                        class="liquid-pill w-full py-2 text-xs font-medium text-emerald-300 border-emerald-500/30 bg-emerald-950/30 hover:bg-emerald-900/40 transition">
+                  <i class="fa-solid fa-file-zipper mr-1"></i> Выбрать ZIP-архив с компьютера
                 </button>
-                <p class="text-[10px] text-gray-500">Выбранная папка загрузится на сервер. Можно также указать путь, уже доступный серверу.</p>
+                <p class="text-[10px] text-gray-400">Системный выбор ZIP-архива (.zip до 100 МБ). Архив распаковывается на сервере.</p>
               </div>
             `;
           } else if (s.type === 'select') {
@@ -3056,20 +3057,28 @@
         : Object.keys(outputs).length + ' keys';
     }
 
-    async function uploadLocalFolder(nodeId, input) {
-      const files = Array.from(input.files || []);
-      if (files.length === 0) return;
-
-      const formData = new FormData();
-      for (const file of files) {
-        formData.append('files', file, file.webkitRelativePath || file.name);
+    async function uploadLocalArchive(nodeId, input, settingName = 'path') {
+      const archive = input.files?.[0];
+      if (!archive) return;
+      if (!archive.name.toLowerCase().endsWith('.zip')) {
+        showBanner('Можно загрузить только ZIP-архив (.zip).');
+        input.value = '';
+        return;
+      }
+      if (archive.size > 100 * 1024 * 1024) {
+        showBanner('Размер ZIP-архива не должен превышать 100 МБ.');
+        input.value = '';
+        return;
       }
 
-      showBanner(`Загрузка папки: ${files.length} файлов...`, true);
+      const formData = new FormData();
+      formData.append('archive', archive, archive.name);
+
+      showBanner(`Загрузка архива: ${archive.name}...`, true);
       try {
         const headers = {};
         if (currentAuthToken) headers['Authorization'] = `Bearer ${currentAuthToken}`;
-        const response = await fetch('/api/sources/local-folder', {
+        const response = await fetch('/api/sources/local-archive', {
           method: 'POST',
           headers,
           body: formData
@@ -3079,12 +3088,12 @@
           throw new Error(data.error || `Ошибка загрузки (${response.status})`);
         }
 
-        updateNodeSetting(nodeId, 'path', data.path);
+        updateNodeSetting(nodeId, settingName, data.path);
         selectNode(nodeId);
-        showBanner(`Папка загружена: ${data.fileCount} файлов`);
+        showBanner(`Архив распакован: ${data.fileCount} файлов`);
         setTimeout(hideBanner, 3000);
       } catch (err) {
-        showBanner(`Не удалось загрузить папку: ${err.message}`);
+        showBanner(`Не удалось загрузить архив: ${err.message}`);
       } finally {
         input.value = '';
       }

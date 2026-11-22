@@ -254,7 +254,7 @@ export class NodeRegistry {
       category: 'Sources',
       icon: 'Folder',
       color: '#10B981', // Emerald
-      description: 'Сканировать каталог на сервере или загрузить папку с компьютера',
+      description: 'Сканировать каталог на сервере или загрузить ZIP-архив с компьютера',
       inputs: [{ id: 'trigger', label: 'Вход', type: 'any' }],
       outputs: [
         { id: 'codePath', label: 'Путь к коду', type: 'codePath' },
@@ -269,7 +269,7 @@ export class NodeRegistry {
           targetPath = path.resolve(process.cwd(), targetPath);
         }
         if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isDirectory()) {
-          throw new Error(`Указанная локальная папка не найдена или путь ведёт не к папке: ${targetPath}. Проверьте путь на сервере или загрузите папку с компьютера.`);
+          throw new Error(`Указанная локальная папка не найдена или путь ведёт не к папке: ${targetPath}. Проверьте путь на сервере или загрузите ZIP-архив с компьютера.`);
         }
         return { codePath: targetPath, repoUrl: targetPath, exists: true };
       }

@@ -197,9 +197,9 @@ export class ScaAnalyzer {
 
     const localVals = new Map<string, string>();
 
-    // Pass 1: collect local variables (val archiveVersion = "1.0", def myVer = "...")
+    // Pass 1: collect literal values and Gradle property references.
     for (const line of lines) {
-      const valMatch = line.match(/(?:val|var|def)\s+([a-zA-Z0-9_]+)\s*=\s*["']([^"']+)["']/);
+      const valMatch = line.match(/(?:val|var|def)\s+([a-zA-Z0-9_]+)\s*=\s*["']([^"']*)["']/);
       if (valMatch) {
         localVals.set(valMatch[1], valMatch[2]);
       }
@@ -213,61 +213,92 @@ export class ScaAnalyzer {
       }
     }
 
-    // Pass 2: find dependency declarations
-    for (let i = 0; i < lines.length; i++) {
-      const lineNum = i + 1;
-      const line = lines[i];
-      const trimmed = line.trim();
-
-      // Skip test configurations to avoid test dependencies FP
-      if (
-        trimmed.startsWith('testImplementation') ||
-        trimmed.startsWith('testCompileOnly') ||
-        trimmed.startsWith('testRuntimeOnly')
-      ) {
-        continue;
-      }
-
-      // Check standard configurations: implementation, api, runtimeOnly, compileOnly, etc.
-      // 1. Direct coordinate string: implementation("group:artifact:version") or implementation "group:artifact:version"
-      const stdMatch = line.match(/(?:implementation|api|runtimeOnly|compileOnly)\s*\(?\s*["']([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^"']+)["']\s*\)?/);
-      if (stdMatch) {
-        const group = stdMatch[1];
-        const artifact = stdMatch[2];
-        let version = stdMatch[3];
-        version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
-        deps.push({ group, artifact, version, rawLine: line, lineNum, filePath: relPath });
-        continue;
-      }
-
-      // 2. Named parameters: implementation(group = "...", name = "...", version = "...")
-      const mapMatch = line.match(/group\s*=\s*["']([A-Za-z0-9_.-]+)["']\s*,\s*name\s*=\s*["']([A-Za-z0-9_.-]+)["'](?:\s*,\s*version\s*=\s*["']([^"']+)["'])?/);
-      if (mapMatch) {
-        const group = mapMatch[1];
-        const artifact = mapMatch[2];
-        let version = mapMatch[3] || '';
-        version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
-        deps.push({ group, artifact, version, rawLine: line, lineNum, filePath: relPath });
-        continue;
-      }
-
-      // 3. Multi-line or add syntax: add("implementation", "group:artifact:version")
-      const coordMatch = line.match(/["']([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^"']+)["']/);
-      if (coordMatch) {
-        const prevOrCurrent = (lines[Math.max(0, i - 1)] + ' ' + line).toLowerCase();
-        if (
-          prevOrCurrent.includes('add') ||
-          prevOrCurrent.includes('implementation') ||
-          prevOrCurrent.includes('api') ||
-          prevOrCurrent.includes('runtimeonly')
-        ) {
-          const group = coordMatch[1];
-          const artifact = coordMatch[2];
-          let version = coordMatch[3];
-          version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
-          deps.push({ group, artifact, version, rawLine: line, lineNum, filePath: relPath });
+    const resolveInterpolations = (raw: string): string => raw.replace(/\$\{?([a-zA-Z_]\w*)\}?/g, (match, name: string) =>
+      localVals.get(name) ?? gradleProps.get(name) ?? match
+    );
+    const findClosing = (text: string, openAt: number, open: string, close: string): number => {
+      let depth = 0;
+      let quote = '';
+      for (let i = openAt; i < text.length; i++) {
+        const char = text[i];
+        if (quote) {
+          if (char === '\\') i++;
+          else if (char === quote) quote = '';
+          continue;
+        }
+        if (char === '"' || char === "'") {
+          quote = char;
+        } else if (char === open) {
+          depth++;
+        } else if (char === close && --depth === 0) {
+          return i;
         }
       }
+      return -1;
+    };
+    const resolveCoordinate = (raw: string): string => {
+      const trimmed = raw.trim().replace(/^["']|["']$/g, '');
+      return resolveInterpolations(localVals.get(trimmed) ?? trimmed);
+    };
+    const readVersionConstraint = (suffix: string): string => {
+      const trimmedSuffix = suffix.trimStart();
+      if (!trimmedSuffix.startsWith('{')) return '';
+      const closeAt = findClosing(trimmedSuffix, 0, '{', '}');
+      if (closeAt < 0) return '';
+      const constraint = trimmedSuffix.slice(1, closeAt).match(/\b(?:strictly|require)\s*\(\s*(["'][^"']+["']|[a-zA-Z_]\w*)\s*\)/);
+      return constraint ? resolveCoordinate(constraint[1]) : '';
+    };
+
+    // Parse complete balanced calls so named arguments and declarations may span lines.
+    const callPattern = /\b(implementation|api|runtimeOnly|compileOnly|add)\s*\(/g;
+    for (const call of cleanContent.matchAll(callPattern)) {
+      const callName = call[1];
+      const openAt = call.index! + call[0].lastIndexOf('(');
+      const closeAt = findClosing(cleanContent, openAt, '(', ')');
+      if (closeAt < 0) continue;
+
+      const args = cleanContent.slice(openAt + 1, closeAt);
+      if (callName === 'add' && !/["'](?:implementation|api|runtimeOnly|compileOnly)["']/.test(args)) continue;
+      const linePrefix = cleanContent.slice(0, call.index!);
+      const lineNum = linePrefix.split('\n').length;
+      const rawLine = cleanContent.slice(call.index!, closeAt + 1).replace(/\s+/g, ' ').trim();
+
+      let group = '';
+      let artifact = '';
+      let version = '';
+      const namedGroup = args.match(/\bgroup\s*=\s*(["'][^"']+["']|[a-zA-Z_]\w*)/);
+      const namedArtifact = args.match(/\bname\s*=\s*(["'][^"']+["']|[a-zA-Z_]\w*)/);
+      const namedVersion = args.match(/\bversion\s*=\s*(["'][^"']+["']|[a-zA-Z_]\w*)/);
+
+      if (namedGroup && namedArtifact) {
+        group = resolveCoordinate(namedGroup[1]);
+        artifact = resolveCoordinate(namedArtifact[1]);
+        version = namedVersion ? resolveCoordinate(namedVersion[1]) : '';
+      } else {
+        const coordinateLiteral = Array.from(args.matchAll(/["']([^"']+)["']/g))
+          .map(match => match[1])
+          .find(value => value.includes(':') && !/^(?:implementation|api|runtimeOnly|compileOnly)$/.test(value));
+        const coordinateVariable = args.trim().match(/^([a-zA-Z_]\w*)\s*,?$/);
+        const coordinate = coordinateLiteral
+          ? resolveInterpolations(coordinateLiteral)
+          : coordinateVariable
+            ? resolveCoordinate(coordinateVariable[1])
+            : '';
+        const parts = coordinate.split(':');
+        if (parts.length >= 2) {
+          group = parts[0];
+          artifact = parts[1];
+          version = parts.slice(2).join(':');
+        }
+      }
+
+      if (!group || !artifact) continue;
+
+      const suffix = cleanContent.slice(closeAt + 1, Math.min(cleanContent.length, closeAt + 500));
+      const constrainedVersion = readVersionConstraint(suffix);
+      version = constrainedVersion || version;
+      version = this.resolveVersion(version, localVals, gradleProps, lockfile, group, artifact);
+      deps.push({ group, artifact, version, rawLine, lineNum, filePath: relPath });
     }
 
     return deps;
