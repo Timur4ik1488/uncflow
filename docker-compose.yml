@@ -41,6 +41,7 @@ services:
       - VAULT_SECRET_KEY=cyber-garden-2026-master-key-32b
     volumes:
       - ./reports:/app/reports:z
+      - ./uploads:/app/uploads:z
     restart: unless-stopped
 
 volumes:

@@ -2944,7 +2944,25 @@
           row.className = 'space-y-1';
 
           let inputHtml = '';
-          if (s.type === 'select') {
+          if (node.type === 'source.local' && s.name === 'path') {
+            const pickerId = `folder-picker-${node.id}`;
+            inputHtml = `
+              <div class="space-y-2">
+                <input type="text" value="${escapeHtml(String(val))}"
+                       placeholder="Путь к папке на сервере"
+                       oninput="updateNodeSetting('${node.id}', 'path', this.value)"
+                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                       class="w-full bg-black/30 text-xs rounded-xl px-3 py-2 border border-white/15 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/20 text-gray-100 font-mono">
+                <input id="${pickerId}" type="file" webkitdirectory directory multiple hidden
+                       onchange="uploadLocalFolder('${node.id}', this)">
+                <button type="button" onclick="document.getElementById('${pickerId}').click()"
+                        class="liquid-pill w-full py-2 text-xs font-medium text-emerald-300 border-emerald-500/30 bg-emerald-950/30">
+                  <i class="fa-solid fa-folder-open mr-1"></i> Выбрать папку с компьютера
+                </button>
+                <p class="text-[10px] text-gray-500">Выбранная папка загрузится на сервер. Можно также указать путь, уже доступный серверу.</p>
+              </div>
+            `;
+          } else if (s.type === 'select') {
             const opts = (s.options || []).map(o => `
               <option value="${o.value}" ${String(val) === String(o.value) ? 'selected' : ''} class="bg-[#161a26] text-white">${o.label}</option>
             `).join('');
@@ -3036,6 +3054,40 @@
       document.getElementById('inspector-output-badge').innerText = outputs.count !== undefined 
         ? `${outputs.count} items` 
         : Object.keys(outputs).length + ' keys';
+    }
+
+    async function uploadLocalFolder(nodeId, input) {
+      const files = Array.from(input.files || []);
+      if (files.length === 0) return;
+
+      const formData = new FormData();
+      for (const file of files) {
+        formData.append('files', file, file.webkitRelativePath || file.name);
+      }
+
+      showBanner(`Загрузка папки: ${files.length} файлов...`, true);
+      try {
+        const headers = {};
+        if (currentAuthToken) headers['Authorization'] = `Bearer ${currentAuthToken}`;
+        const response = await fetch('/api/sources/local-folder', {
+          method: 'POST',
+          headers,
+          body: formData
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || `Ошибка загрузки (${response.status})`);
+        }
+
+        updateNodeSetting(nodeId, 'path', data.path);
+        selectNode(nodeId);
+        showBanner(`Папка загружена: ${data.fileCount} файлов`);
+        setTimeout(hideBanner, 3000);
+      } catch (err) {
+        showBanner(`Не удалось загрузить папку: ${err.message}`);
+      } finally {
+        input.value = '';
+      }
     }
 
     function togglePasswordVisibility(fieldId, btn) {

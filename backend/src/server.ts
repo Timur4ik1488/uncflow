@@ -2,6 +2,10 @@ import './config/env.ts';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
+import { Busboy } from '@fastify/busboy';
 
 import { NodeRegistry } from './nodes/registry.ts';
 import { WorkflowEngine } from './engine/workflow-engine.ts';
@@ -123,6 +127,116 @@ const server = http.createServer(async (req, res) => {
     // =========================================================================
     // AUTHENTICATION & USER PROFILES (GitHub & GitVerse Integration)
     // =========================================================================
+
+    if (req.method === 'POST' && pathname === '/api/sources/local-folder') {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Войдите в аккаунт, чтобы загрузить папку проекта.' }));
+        return;
+      }
+
+      const uploadRoot = path.resolve(process.cwd(), 'uploads', randomUUID());
+      const maxFiles = 1000;
+      const maxFileSize = 20 * 1024 * 1024;
+      const maxTotalSize = 100 * 1024 * 1024;
+      let totalBytes = 0;
+      let fileCount = 0;
+      let uploadError: Error | undefined;
+      const fileWrites: Promise<void>[] = [];
+
+      try {
+        await fs.promises.mkdir(uploadRoot, { recursive: true });
+        const parser = Busboy({
+          headers: req.headers as { 'content-type': string },
+          preservePath: true,
+          limits: { files: maxFiles, fileSize: maxFileSize, fields: 1, parts: maxFiles + 1 }
+        });
+
+        parser.on('file', (fieldName, file, filename) => {
+          if (fieldName !== 'files') {
+            file.resume();
+            return;
+          }
+
+          fileCount += 1;
+          const normalizedName = filename.replace(/\\/g, '/');
+          const pathParts = normalizedName.split('/');
+          if (
+            !normalizedName ||
+            normalizedName.startsWith('/') ||
+            /^[a-zA-Z]:/.test(normalizedName) ||
+            pathParts.some(part => !part || part === '.' || part === '..')
+          ) {
+            uploadError ??= new Error('В загруженной папке обнаружено недопустимое имя файла.');
+            file.resume();
+            return;
+          }
+
+          const destination = path.resolve(uploadRoot, ...pathParts);
+          if (!destination.startsWith(`${uploadRoot}${path.sep}`)) {
+            uploadError ??= new Error('Путь файла выходит за пределы загружаемой папки.');
+            file.resume();
+            return;
+          }
+
+          const write = (async () => {
+            await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+            await pipeline(
+              file,
+              new Transform({
+                transform(chunk: Buffer, _encoding, callback) {
+                  totalBytes += chunk.length;
+                  if (totalBytes > maxTotalSize) {
+                    callback(new Error('Размер папки превышает ограничение 100 МБ.'));
+                    return;
+                  }
+                  callback(null, chunk);
+                }
+              }),
+              fs.createWriteStream(destination, { flags: 'wx' })
+            );
+            if (file.truncated) {
+              throw new Error('Размер одного из файлов превышает ограничение 20 МБ.');
+            }
+          })().catch((err: Error) => {
+            uploadError ??= err;
+          });
+          fileWrites.push(write);
+        });
+
+        parser.on('filesLimit', () => {
+          uploadError ??= new Error('В папке слишком много файлов (максимум 1000).');
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          parser.once('error', reject);
+          parser.once('finish', resolve);
+          req.once('error', reject);
+          req.pipe(parser);
+        });
+        await Promise.all(fileWrites);
+
+        if (uploadError) throw uploadError;
+        if (fileCount === 0) {
+          throw new Error('Не удалось прочитать файлы папки. Попробуйте выбрать её ещё раз.');
+        }
+
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          path: uploadRoot,
+          fileCount,
+          totalBytes
+        }));
+      } catch (err: any) {
+        await fs.promises.rm(uploadRoot, { recursive: true, force: true });
+        const message = err?.message || 'Не удалось загрузить папку проекта.';
+        const statusCode = /превышает ограничение|слишком много файлов/i.test(message) ? 413 : 400;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: message }));
+      }
+      return;
+    }
 
     // POST /api/auth/register
     if (req.method === 'POST' && pathname === '/api/auth/register') {

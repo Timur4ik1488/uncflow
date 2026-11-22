@@ -13,6 +13,7 @@
     "test:db": "tsx test/postgres-storage.test.ts"
   },
   "dependencies": {
+    "@fastify/busboy": "^3.2.6",
     "@fastify/cors": "^10.0.2",
     "@fastify/multipart": "^9.0.3",
     "@fastify/websocket": "^11.0.2",
