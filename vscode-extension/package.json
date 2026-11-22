@@ -162,11 +162,6 @@
           "type": "boolean",
           "default": false,
           "description": "Автоматически проверять проект при сохранении файлов"
-        },
-        "uncflow.autoArchive": {
-          "type": "boolean",
-          "default": true,
-          "description": "Упаковывать рабочую директорию в ZIP-архив при обращении к удаленному серверу uncflow"
         }
       }
     }

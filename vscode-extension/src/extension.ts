@@ -228,9 +228,8 @@ async function executeAudit(folderPath: string, scenarioId: string, scenarioTitl
         let codePath = folderPath;
 
         const isLocal = client.isLocalHost();
-        const autoArchive = vscode.workspace.getConfiguration('uncflow').get<boolean>('autoArchive', true);
 
-        if (!isLocal && autoArchive) {
+        if (!isLocal) {
           progress.report({ message: 'Упаковка проекта в безопасный ZIP-архив...' });
           try {
             const zipBuffer = await createProjectZipBuffer(folderPath);
