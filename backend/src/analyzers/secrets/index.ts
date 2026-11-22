@@ -32,6 +32,23 @@ export function isSafeOrPlaceholder(val: string): boolean {
   if (/^\\?\$\{[A-Za-z0-9_.-]+(:)?\}$/.test(trimmed)) return true;
 
   const lower = trimmed.toLowerCase();
+
+  // Explicit placeholder keywords and patterns
+  const placeholderPatterns = [
+    'your_api_key', 'your-api-key', 'yourapikey',
+    'your_password', 'your-password', 'yourpassword',
+    'your_token', 'your-token', 'yourtoken',
+    'your_secret', 'your-secret', 'yoursecret',
+    'change_me', 'change-me', 'changeme',
+    'replace_me', 'replace-me', 'replaceme',
+    'dummy', 'sample', 'example', 'placeholder'
+  ];
+  if (placeholderPatterns.includes(lower)) return true;
+
+  if (/^(?:your[-_]?(?:api[-_]?key|password|token|secret)|change[-_]?me|replace[-_]?me|dummy|sample)(?:[_-]|$)/i.test(lower)) {
+    return true;
+  }
+
   const safeWords = new Set([
     'null', 'none', 'true', 'false', 'undefined', 'default', 'dummy',
     'test', 'testing', 'dev', 'development', 'prod', 'production',
@@ -53,6 +70,39 @@ export function isSafeOrPlaceholder(val: string): boolean {
   if (/^https?:\/\/[a-zA-Z0-9_.-]+(?::\d+)?\/?$/.test(trimmed)) return true;
 
   return false;
+}
+
+export const isPlaceholder = isSafeOrPlaceholder;
+
+function splitConcatExpr(expr: string): string[] {
+  const terms: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if ((ch === '"' || ch === "'") && (i === 0 || expr[i - 1] !== '\\')) {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = ch;
+      } else if (ch === quoteChar) {
+        inQuotes = false;
+      }
+      current += ch;
+    } else if (ch === '+' && !inQuotes) {
+      if (current.trim()) {
+        terms.push(current.trim());
+      }
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) {
+    terms.push(current.trim());
+  }
+  return terms;
 }
 
 export function maskSecret(secret: string): string {
@@ -161,8 +211,10 @@ export class SecretAnalyzer {
       name: string;
       value: string;
       line: number;
+      componentLines: number[];
     }
     const stringVars = new Map<string, VarInfo>();
+    const reportedRecoverableLines = new Set<number>();
 
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
@@ -210,25 +262,31 @@ export class SecretAnalyzer {
         }
       }
 
-      // Direct header assignment with API key literal: .header("X-Api-Key", "...")
-      if (!apiKeyMatch && /header\s*\(\s*["'](?:X-Api-Key|api-key|apiKey)["']\s*,\s*["']([^"']+)["']\s*\)/i.test(lineText)) {
-        const match = lineText.match(/header\s*\(\s*["'](?:X-Api-Key|api-key|apiKey)["']\s*,\s*["']([^"']+)["']\s*\)/i);
-        if (match && !isSafeOrPlaceholder(match[1])) {
-          findings.push({
-            category: 'SECRET',
-            path: relPath,
-            class: 'api-key',
-            line: lineNum,
-            endLine: lineNum,
-            severity: 'MEDIUM',
-            description: `Встроенный API-ключ в заголовке авторизации (${maskSecret(match[1])})`,
-            remediation: 'Передавать ключ через настройки окружения'
-          });
+      // Direct header assignment with API key / auth token literal across all auth headers (A-SEC-02 / Defect 1)
+      const headerAuthPattern = /(?:\.header|header|\.headers|headers|\.set|set|\.add|add)\s*\(\s*(?:["'](?:X-Api-Key|Api-Key|X-Auth-Token|X-Access-Token|X-Secret-Key|X-Token|Authorization|api-key|apiKey|auth-token|authToken|access-token|accessToken|secret-key|secretKey|x-token|xToken)["']|HttpHeaders\.(?:AUTHORIZATION|[A-Z0-9_]+))\s*,\s*["']([^"']+)["']\s*\)/i;
+      const bearerAuthPattern = /(?:setBearerAuth|\.setBearerAuth)\s*\(\s*["']([^"']+)["']\s*\)/i;
+
+      const headerLiteralMatch = lineText.match(headerAuthPattern) || lineText.match(bearerAuthPattern);
+      if (!apiKeyMatch && headerLiteralMatch) {
+        const rawVal = headerLiteralMatch[1];
+        if (rawVal && !/\$[a-zA-Z0-9_]+|\$\{[^}]+\}/.test(rawVal)) {
+          const cleanToken = rawVal.replace(/^Bearer\s+/i, '').trim();
+          if (!isSafeOrPlaceholder(cleanToken)) {
+            findings.push({
+              category: 'SECRET',
+              path: relPath,
+              class: 'api-key',
+              line: lineNum,
+              endLine: lineNum,
+              severity: 'MEDIUM',
+              description: `Встроенный секрет/токен в заголовке авторизации (${maskSecret(cleanToken)})`,
+              remediation: 'Передавать ключ через настройки окружения'
+            });
+          }
         }
       }
 
       // 3. Secret fallback detection (A-SEC-04)
-      // e.g. System.getenv("...") ?: "fallback_value" or System.getProperty("...", "fallback_value")
       const envFallbackMatch = lineText.match(/(?:getenv|getProperty)\s*\([^)]*\)\s*\?:\s*["']([^"']+)["']/);
       const propFallbackMatch = lineText.match(/getProperty\s*\(\s*["'][^"']+["']\s*,\s*["']([^"']+)["']\s*\)/);
       const fallbackVal = envFallbackMatch ? envFallbackMatch[1] : (propFallbackMatch ? propFallbackMatch[1] : null);
@@ -264,68 +322,139 @@ export class SecretAnalyzer {
         }
       }
 
-      // 4. Track local string variables for recoverable-token (A-SEC-05)
-      const varAssign = lineText.match(/(?:val|var)\s+([a-zA-Z0-9_]+)\s*(?::\s*String)?\s*=\s*["']([^"']+)["']/);
-      if (varAssign) {
-        stringVars.set(varAssign[1], {
-          name: varAssign[1],
-          value: varAssign[2],
-          line: lineNum
+      // 4. Track local string variables and multi-variable assembly for recoverable-token (A-SEC-05 / Defect 2)
+      const literalAssign = lineText.match(/(?:val|var)\s+([a-zA-Z0-9_]+)\s*(?::\s*String)?\s*=\s*["']([^"']+)["']/);
+      if (literalAssign && !/\$[a-zA-Z0-9_]+|\$\{[^}]+\}/.test(literalAssign[2])) {
+        stringVars.set(literalAssign[1], {
+          name: literalAssign[1],
+          value: literalAssign[2],
+          line: lineNum,
+          componentLines: [lineNum]
         });
       }
 
-      // Concatenation: val token = a + b
-      const concatMatch = lineText.match(/(?:val|var)\s+([a-zA-Z0-9_]+)\s*=\s*([a-zA-Z0-9_]+)\s*\+\s*([a-zA-Z0-9_]+)/);
-      // Interpolation: val token = "$a$b"
-      const templateMatch = lineText.match(/(?:val|var)\s+([a-zA-Z0-9_]+)\s*=\s*["']\$([a-zA-Z0-9_]+)\$([a-zA-Z0-9_]+)["']/);
+      // Variable assignment combining variables via +, string templates, or mixed (e.g. val joined = x1 + x2 + "$x3$x4")
+      const varAssignHeader = lineText.match(/(?:val|var)\s+([a-zA-Z0-9_]+)\s*(?::\s*String)?\s*=\s*(.+)/);
+      if (varAssignHeader && !stringVars.has(varAssignHeader[1])) {
+        const targetVar = varAssignHeader[1];
+        const expr = varAssignHeader[2].trim();
+        const terms = splitConcatExpr(expr);
 
-      const targetVar = concatMatch ? concatMatch[1] : (templateMatch ? templateMatch[1] : null);
-      const var1 = concatMatch ? concatMatch[2] : (templateMatch ? templateMatch[2] : null);
-      const var2 = concatMatch ? concatMatch[3] : (templateMatch ? templateMatch[3] : null);
+        if (terms.length > 1 || (terms.length === 1 && terms[0].includes('$'))) {
+          const resolvedTerms: string[] = [];
+          const allCompLines: number[] = [];
+          let valid = true;
+          let varRefsCount = 0;
 
-      if (targetVar && var1 && var2 && stringVars.has(var1) && stringVars.has(var2)) {
-        const info1 = stringVars.get(var1)!;
-        const info2 = stringVars.get(var2)!;
-        const combined = info1.value + info2.value;
-
-        // Register reconstructed variable
-        stringVars.set(targetVar, {
-          name: targetVar,
-          value: combined,
-          line: lineNum
-        });
-
-        // Check if combined value or targetVar is used in authentication within next lines
-        const lookaheadLines = lines.slice(i, Math.min(lines.length, i + 8));
-        const isUsedInAuth = lookaheadLines.some(l =>
-          l.includes(`setBearerAuth(${targetVar})`) ||
-          l.includes(`Bearer $${targetVar}`) ||
-          l.includes(`header("Authorization"`) ||
-          l.includes(`header('Authorization'`) ||
-          l.includes(`header("X-Api-Key"`) ||
-          l.includes(`HttpHeaders`)
-        );
-
-        const entropy = calculateEntropy(combined);
-        if ((isUsedInAuth || entropy >= (this.options.entropyThreshold ?? 3.2)) && combined.length >= 10) {
-          const startLine = Math.min(info1.line, info2.line);
-          let endLine = lineNum;
-          for (let k = 0; k < lookaheadLines.length; k++) {
-            if (lookaheadLines[k].includes(targetVar)) {
-              endLine = i + k + 1;
+          for (const term of terms) {
+            if (/^[a-zA-Z0-9_]+$/.test(term)) {
+              if (stringVars.has(term)) {
+                const varInfo = stringVars.get(term)!;
+                resolvedTerms.push(varInfo.value);
+                allCompLines.push(...varInfo.componentLines);
+                varRefsCount++;
+              } else {
+                valid = false;
+                break;
+              }
+            } else if ((term.startsWith('"') && term.endsWith('"')) || (term.startsWith("'") && term.endsWith("'"))) {
+              const strContent = term.slice(1, -1);
+              const templateVarMatches = Array.from(strContent.matchAll(/\$([a-zA-Z0-9_]+)|\$\{([a-zA-Z0-9_]+)\}/g));
+              if (templateVarMatches.length > 0) {
+                let subContent = strContent;
+                for (const m of templateVarMatches) {
+                  const vn = m[1] || m[2];
+                  if (stringVars.has(vn)) {
+                    const varInfo = stringVars.get(vn)!;
+                    subContent = subContent.replace(m[0], varInfo.value);
+                    allCompLines.push(...varInfo.componentLines);
+                    varRefsCount++;
+                  } else {
+                    valid = false;
+                    break;
+                  }
+                }
+                if (!valid) break;
+                resolvedTerms.push(subContent);
+              } else {
+                resolvedTerms.push(strContent);
+              }
+            } else {
+              valid = false;
+              break;
             }
           }
 
-          findings.push({
-            category: 'SECRET',
-            path: relPath,
-            class: 'recoverable-token',
-            line: startLine,
-            endLine: Math.min(endLine, startLine + 14),
-            severity: 'MEDIUM',
-            description: `Токен восстанавливается из конкатенации строковых фрагментов (${maskSecret(combined)})`,
-            remediation: 'Подставлять цельный токен из окружения или защищённого хранилища без разделения на фрагменты в коде'
-          });
+          if (valid && varRefsCount >= 2) {
+            const reconstructed = resolvedTerms.join('');
+            const uniqueLines = Array.from(new Set(allCompLines)).sort((a, b) => a - b);
+            stringVars.set(targetVar, {
+              name: targetVar,
+              value: reconstructed,
+              line: lineNum,
+              componentLines: uniqueLines
+            });
+          }
+        }
+      }
+
+      // Check for usage of assembled token variables in auth headers / setBearerAuth calls
+      for (const [varName, varInfo] of stringVars.entries()) {
+        if (varInfo.componentLines.length >= 2) {
+          const varInterpolation = `(?:\\$${varName}\\b|\\$\\{${varName}\\})`;
+          const isUsedInAuthOnLine =
+            lineText.includes(`setBearerAuth(${varName})`) ||
+            lineText.includes(`.setBearerAuth(${varName})`) ||
+            new RegExp(`(?:\\.header|header|\\.set|set|\\.add|add)\\s*\\(\\s*["'](?:Authorization|X-Api-Key|Api-Key|X-Auth-Token|X-Access-Token|X-Secret-Key|X-Token)["']\\s*,\\s*(?:["'][^"']*${varInterpolation}[^"']*["']|\\b${varName}\\b)`, 'i').test(lineText) ||
+            new RegExp(`(?:\\.header|header|\\.set|set|\\.add|add)\\s*\\(\\s*HttpHeaders\\.(?:AUTHORIZATION|[A-Z0-9_]+)\\s*,\\s*(?:["'][^"']*${varInterpolation}[^"']*["']|\\b${varName}\\b)`, 'i').test(lineText);
+
+          if (isUsedInAuthOnLine) {
+            const startLine = Math.min(...varInfo.componentLines);
+            if (!reportedRecoverableLines.has(startLine)) {
+              reportedRecoverableLines.add(startLine);
+              findings.push({
+                category: 'SECRET',
+                path: relPath,
+                class: 'recoverable-token',
+                line: startLine,
+                endLine: lineNum,
+                severity: 'MEDIUM',
+                description: `Токен восстанавливается из конкатенации строковых фрагментов (${maskSecret(varInfo.value)})`,
+                remediation: 'Подставлять цельный токен из окружения или защищённого хранилища без разделения на фрагменты в коде'
+              });
+            }
+          }
+        }
+      }
+
+      // Direct template assembly inside auth call: .header("Authorization", "Bearer $a$b$c") or setBearerAuth("${a}${b}${c}")
+      const isAuthCallLine =
+        /(?:\.header|header|\.set|set|\.add|add)\s*\(\s*(?:["'](?:Authorization|X-Api-Key|Api-Key|X-Auth-Token|X-Access-Token|X-Secret-Key|X-Token)["']|HttpHeaders\.(?:AUTHORIZATION|[A-Z0-9_]+))/i.test(lineText) ||
+        /(?:setBearerAuth|\.setBearerAuth)\s*\(/i.test(lineText);
+
+      if (isAuthCallLine) {
+        const inlineTemplateVars = Array.from(lineText.matchAll(/\$([a-zA-Z0-9_]+)|\$\{([a-zA-Z0-9_]+)\}/g));
+        if (inlineTemplateVars.length >= 2) {
+          const matchedNames = inlineTemplateVars.map(m => m[1] || m[2]);
+          if (matchedNames.every(vn => stringVars.has(vn))) {
+            const compInfos = matchedNames.map(vn => stringVars.get(vn)!);
+            const compLines = Array.from(new Set(compInfos.flatMap(info => info.componentLines)));
+            const startLine = Math.min(...compLines);
+            const combinedVal = compInfos.map(info => info.value).join('');
+            if (!reportedRecoverableLines.has(startLine)) {
+              reportedRecoverableLines.add(startLine);
+              findings.push({
+                category: 'SECRET',
+                path: relPath,
+                class: 'recoverable-token',
+                line: startLine,
+                endLine: lineNum,
+                severity: 'MEDIUM',
+                description: `Токен восстанавливается из конкатенации строковых фрагментов (${maskSecret(combinedVal)})`,
+                remediation: 'Подставлять цельный токен из окружения или защищённого хранилища без разделения на фрагменты в коде'
+              });
+            }
+          }
         }
       }
     }
@@ -377,10 +506,10 @@ export class SecretAnalyzer {
             findings.push({
               category: 'SECRET',
               path: relPath,
-              class: isPwd ? 'password' : 'configuration-token',
+              class: isPwd ? 'password' : 'secret-fallback',
               line: lineNum,
               endLine: lineNum,
-              severity: 'HIGH',
+              severity: isPwd ? 'HIGH' : 'LOW',
               description: `Секрет с резервным значением сохранён в конфигурации (${maskSecret(fallbackVal)})`,
               remediation: 'Удалить встроенное значение по умолчанию, передавать секрет исключительно через окружение'
             });
@@ -520,10 +649,10 @@ export class SecretAnalyzer {
           findings.push({
             category: 'SECRET',
             path: relPath,
-            class: isPwd ? 'password' : 'configuration-token',
+            class: isPwd ? 'password' : 'secret-fallback',
             line: lineNum,
             endLine: lineNum,
-            severity: 'HIGH',
+            severity: isPwd ? 'HIGH' : 'LOW',
             description: `Секрет с резервным значением в свойствах (${maskSecret(fb)})`,
             remediation: 'Удалить встроенное значение по умолчанию'
           });
