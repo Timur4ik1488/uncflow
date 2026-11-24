@@ -27,6 +27,7 @@ reports/*.md
 reports/*.sarif
 *.zip
 !reports/.gitkeep
+uploads/
 
 # Operating System & Editor Files
 .DS_Store

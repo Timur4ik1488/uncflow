@@ -254,22 +254,22 @@ export class NodeRegistry {
       category: 'Sources',
       icon: 'Folder',
       color: '#10B981', // Emerald
-      description: 'Использовать локальный каталог с исходным кодом приложения',
+      description: 'Сканировать каталог на сервере или загрузить ZIP-архив с компьютера',
       inputs: [{ id: 'trigger', label: 'Вход', type: 'any' }],
       outputs: [
         { id: 'codePath', label: 'Путь к коду', type: 'codePath' },
         { id: 'repoUrl', label: 'Путь к проекту', type: 'string' }
       ],
       settings: [
-        { name: 'path', label: 'Путь к проекту', type: 'string', default: 'test-dataset/training-project', required: true }
+        { name: 'path', label: 'Путь к проекту на сервере', type: 'string', default: 'test-dataset/training-project', required: true }
       ],
       run: async (inputs, settings) => {
         let targetPath = inputs.codePath || inputs.path || settings.path || 'test-dataset/training-project';
         if (!path.isAbsolute(targetPath)) {
           targetPath = path.resolve(process.cwd(), targetPath);
         }
-        if (!fs.existsSync(targetPath)) {
-          throw new Error(`Указанный локальный каталог не найден: ${targetPath}. Проверьте правильность пути в настройках блока.`);
+        if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isDirectory()) {
+          throw new Error(`Указанная локальная папка не найдена или путь ведёт не к папке: ${targetPath}. Проверьте путь на сервере или загрузите ZIP-архив с компьютера.`);
         }
         return { codePath: targetPath, repoUrl: targetPath, exists: true };
       }

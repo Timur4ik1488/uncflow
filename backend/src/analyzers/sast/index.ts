@@ -32,8 +32,8 @@ interface RepoMethod {
   endLine: number;
   queryLine: number;
   queryText: string;
+  tableName: string;
   hasOwnerCheckInQuery: boolean;
-  hasOwnerColumnInContext: boolean;
 }
 
 export class SastAnalyzer {
@@ -45,12 +45,84 @@ export class SastAnalyzer {
     const controllers: ControllerEndpoint[] = [];
     const serviceMethods: ServiceMethod[] = [];
     const repoMethods: RepoMethod[] = [];
+    const ownerTables = new Set<string>();
+    const ownerEntities = new Set<string>();
+
+    for (const file of files) {
+      const content = stripCommentsPreservingLines(fs.readFileSync(file, 'utf-8'));
+      const isSql = path.extname(file).toLowerCase() === '.sql';
+      const ownerRoots = 'customer|owner|user|account|client|holder|beneficiary|author|member|driver|tenant|profile|subscriber';
+      const ownerColumn = new RegExp(`\\b(?:${ownerRoots})(?:[_-](?:${ownerRoots}))?[_-]?(?:id|account|uuid|no|code|ref|key|name)?\\b`, 'i');
+      const tableNames = new Set<string>();
+
+      for (const match of content.matchAll(/\b(?:FROM|UPDATE|JOIN|INTO)\s+["`]?([a-zA-Z_][\w.]*)["`]?/gi)) {
+        tableNames.add(match[1].split('.').pop()!.replace(/["`]/g, '').toLowerCase());
+      }
+      for (const match of content.matchAll(/@Table\s*\(\s*(?:name\s*=\s*)?["']([a-zA-Z_][\w.]*)["']/gi)) {
+        tableNames.add(match[1].split('.').pop()!.toLowerCase());
+      }
+
+      if (isSql) {
+        const createTablePattern = /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?([a-zA-Z_][\w.]*)["`]?\s*\(/gi;
+        for (const match of content.matchAll(createTablePattern)) {
+          const openAt = match.index! + match[0].lastIndexOf('(');
+          let depth = 1;
+          let endAt = openAt + 1;
+          while (endAt < content.length && depth > 0) {
+            if (content[endAt] === '(') depth++;
+            else if (content[endAt] === ')') depth--;
+            endAt++;
+          }
+          if (ownerColumn.test(content.slice(openAt + 1, endAt - 1))) {
+            ownerTables.add(match[1].split('.').pop()!.toLowerCase());
+          }
+        }
+      } else {
+        for (const match of content.matchAll(/\b(?:data\s+)?class\s+([A-Z]\w*)\s*\(([^)]*)\)/g)) {
+          if (ownerColumn.test(match[2])) ownerEntities.add(match[1].toLowerCase());
+        }
+
+        const sqlQueries = Array.from(content.matchAll(/"""([\s\S]*?)"""|"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g))
+          .map(match => match[1] ?? match[2] ?? match[3] ?? '')
+          .filter(value => /\b(?:SELECT|UPDATE|DELETE)\b/i.test(value));
+        for (const query of sqlQueries) {
+          const tableMatch = query.match(/\b(?:FROM|UPDATE|JOIN)\s+["`]?([a-zA-Z_][\w.]*)["`]?/i);
+          if (tableMatch && ownerColumn.test(query)) {
+            ownerTables.add(tableMatch[1].split('.').pop()!.toLowerCase());
+          }
+        }
+
+        const tableAnnotation = content.match(/@Table\s*\(\s*(?:name\s*=\s*)?["']([a-zA-Z_][\w.]*)["']/i);
+        if (tableAnnotation) {
+          const entityBody = content.slice(tableAnnotation.index!);
+          const nextEntity = entityBody.search(/\bclass\s+/);
+          const entity = nextEntity >= 0 ? entityBody.slice(0, nextEntity) + entityBody.slice(nextEntity).slice(0, entityBody.slice(nextEntity).indexOf('}') + 1) : entityBody;
+          if (ownerColumn.test(entity)) ownerTables.add(tableAnnotation[1].split('.').pop()!.toLowerCase());
+        }
+      }
+    }
+    for (const file of files) {
+      const content = stripCommentsPreservingLines(fs.readFileSync(file, 'utf-8'));
+      const tableNames = [
+        ...Array.from(content.matchAll(/\b(?:FROM|UPDATE|JOIN|INTO)\s+["`]?([a-zA-Z_][\w.]*)["`]?/gi), match => match[1]),
+        ...Array.from(content.matchAll(/@Table\s*\(\s*(?:name\s*=\s*)?["']([a-zA-Z_][\w.]*)["']/gi), match => match[1])
+      ];
+      for (const rawName of tableNames) {
+        const tableName = rawName.split('.').pop()!.replace(/["`]/g, '').toLowerCase();
+        const singularName = tableName.endsWith('ies')
+          ? `${tableName.slice(0, -3)}y`
+          : tableName.endsWith('s') ? tableName.slice(0, -1) : tableName;
+        if (ownerEntities.has(singularName)) ownerTables.add(tableName);
+      }
+    }
 
     for (const file of files) {
       const relPath = path.relative(projectRoot, file).replace(/\\/g, '/');
       const rawContent = fs.readFileSync(file, 'utf-8');
       const cleanContent = stripCommentsPreservingLines(rawContent);
       const lines = cleanContent.split('\n');
+
+      if (path.extname(file).toLowerCase() === '.sql') continue;
 
       // Rule 1: SQL Injection (A-SAST-01)
       findings.push(...this.checkSqlInjection(lines, relPath));
@@ -65,11 +137,11 @@ export class SastAnalyzer {
       findings.push(...this.checkRouteAuthorization(lines, relPath));
 
       // Indexing for Rule 5: Object Authorization (IDOR)
-      this.indexForObjectAuthorization(lines, relPath, controllers, serviceMethods, repoMethods);
+      this.indexForObjectAuthorization(lines, relPath, controllers, serviceMethods, repoMethods, ownerTables);
     }
 
     // Rule 5: Inter-procedural Object Authorization / IDOR (A-SAST-05)
-    findings.push(...this.resolveObjectAuthorization(controllers, serviceMethods, repoMethods));
+    findings.push(...this.resolveObjectAuthorization(controllers, serviceMethods, repoMethods, ownerTables));
 
     return findings;
   }
@@ -85,7 +157,7 @@ export class SastAnalyzer {
         if (!['.git', 'node_modules', '.gradle', 'build', 'dist', 'target'].includes(entry.name)) {
           results.push(...this.collectSourceFiles(fullPath));
         }
-      } else if (entry.isFile() && (entry.name.endsWith('.kt') || entry.name.endsWith('.java'))) {
+      } else if (entry.isFile() && (entry.name.endsWith('.kt') || entry.name.endsWith('.java') || entry.name.endsWith('.sql'))) {
         results.push(fullPath);
       }
     }
@@ -357,7 +429,7 @@ export class SastAnalyzer {
 
         const hasWildcardOrigin =
           /\b(allowedOrigins|allowedOriginPatterns|addAllowedOrigin|addAllowedOriginPattern)\b/.test(bLine) &&
-          (/["']\*["']/.test(bLine) || /listOf\s*\(\s*["']\*["']\s*\)/.test(bLine));
+          /["'][^"']*\*[^"']*["']/.test(bLine);
 
         if (hasWildcardOrigin && wildcardOriginLine === -1) {
           wildcardOriginLine = currentLineNum;
@@ -384,7 +456,7 @@ export class SastAnalyzer {
           line: range.line,
           endLine: range.endLine !== undefined ? Math.min(range.endLine, block.endLine) : undefined,
           severity: 'MEDIUM',
-          description: 'Небезопасная конфигурация CORS: разрешены любые источники (*) одновременно с передачей учетных данных (allowCredentials = true)',
+          description: 'Небезопасная конфигурация CORS: wildcard-источник разрешён одновременно с передачей учётных данных (allowCredentials = true)',
           remediation: 'Заменить подстановочный символ * в allowedOriginPatterns на явный список доверенных доменов'
         });
 
@@ -397,7 +469,7 @@ export class SastAnalyzer {
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
       const line = lines[i];
-      if (line.includes('@CrossOrigin') && (line.includes('"*"') || line.includes("'*'")) && line.includes('allowCredentials = "true"')) {
+      if (line.includes('@CrossOrigin') && /\borigins?\s*=\s*\{?["'][^"']*\*[^"']*["']/.test(line) && /allowCredentials\s*=\s*["']true["']/.test(line)) {
         findings.push({
           category: 'SAST',
           path: relPath,
@@ -441,35 +513,49 @@ export class SastAnalyzer {
 
     const rules: SecurityRule[] = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const lineNum = i + 1;
-      const line = lines[i];
+    const fullText = lines.join('\n');
+    const matcherPattern = /\b(?:requestMatchers|antMatchers)\s*\(([^)]*)\)/g;
+    const matcherCalls = Array.from(fullText.matchAll(matcherPattern));
+    for (let i = 0; i < matcherCalls.length; i++) {
+      const call = matcherCalls[i];
+      const end = call.index! + call[0].length;
+      const nextStart = matcherCalls[i + 1]?.index ?? fullText.length;
+      const chain = fullText.slice(end, nextStart);
+      let access: 'permitAll' | 'authenticated' | 'hasRole' | 'denyAll' | undefined;
+      let role: string | undefined;
+      if (/\.\s*permitAll\s*\(/.test(chain)) access = 'permitAll';
+      else if (/\.\s*authenticated\s*\(/.test(chain)) access = 'authenticated';
+      else if (/\.\s*(?:hasRole|hasAuthority)\s*\(/.test(chain)) {
+        access = 'hasRole';
+        role = chain.match(/\.\s*(?:hasRole|hasAuthority)\s*\(\s*["']([^"']+)["']/)?.[1];
+      } else if (/\.\s*denyAll\s*\(/.test(chain)) access = 'denyAll';
+      if (!access) continue;
 
-      if (line.includes('requestMatchers') || line.includes('antMatchers')) {
-        const pathMatch = line.match(/["'](\/[^"']*)["']/);
-        if (pathMatch) {
-          const pattern = pathMatch[1];
-          let access: 'permitAll' | 'authenticated' | 'hasRole' | 'denyAll' = 'permitAll';
-          let role: string | undefined;
-
-          if (line.includes('permitAll()')) {
-            access = 'permitAll';
-          } else if (line.includes('authenticated()')) {
-            access = 'authenticated';
-          } else if (line.includes('hasRole') || line.includes('hasAuthority')) {
-            access = 'hasRole';
-            const roleMatch = line.match(/(?:hasRole|hasAuthority)\s*\(\s*["']([^"']+)["']/);
-            if (roleMatch) role = roleMatch[1];
-          } else if (line.includes('denyAll()')) {
-            access = 'denyAll';
-          }
-
-          rules.push({ line: lineNum, pattern, access, role });
-        }
-      }
+      const line = fullText.slice(0, call.index!).split('\n').length;
+      const patterns = Array.from(call[1].matchAll(/["'](\/[^"']*)["']/g)).map(match => match[1]);
+      for (const pattern of patterns) rules.push({ line, pattern, access, role });
     }
 
-    // Prefix Shadowing analysis
+    const covers = (coverPattern: string, targetPattern: string): boolean => {
+      if (coverPattern === targetPattern || coverPattern === '/**' || coverPattern === '/*') return true;
+      const doubleStarAt = coverPattern.indexOf('/**');
+      if (doubleStarAt >= 0) {
+        const prefix = coverPattern.slice(0, doubleStarAt);
+        return targetPattern === prefix || targetPattern.startsWith(`${prefix}/`);
+      }
+      const starAt = coverPattern.indexOf('*');
+      if (starAt >= 0) {
+        const prefix = coverPattern.slice(0, starAt);
+        const suffix = coverPattern.slice(starAt + 1);
+        if (!targetPattern.startsWith(prefix) || !targetPattern.endsWith(suffix)) return false;
+        const middle = targetPattern.slice(prefix.length, targetPattern.length - suffix.length || undefined);
+        return !middle.includes('/') && !middle.includes('*');
+      }
+      return false;
+    };
+
+    // Earlier permitAll rules shadow protected rules whether the open or protected
+    // matcher is the broader pattern.
     for (let i = 0; i < rules.length; i++) {
       const current = rules[i];
       if (current.access === 'permitAll') {
@@ -479,9 +565,7 @@ export class SastAnalyzer {
         for (let j = i + 1; j < rules.length; j++) {
           const subsequent = rules[j];
           if (subsequent.access === 'hasRole' || subsequent.access === 'authenticated') {
-            const prefix = subsequent.pattern.replace(/\/\*\*$/, '').replace(/\/\*$/, '');
-
-            if (current.pattern.startsWith(prefix) && current.pattern !== prefix) {
+            if (covers(current.pattern, subsequent.pattern) || covers(subsequent.pattern, current.pattern)) {
               const isCritical = (subsequent.role && subsequent.role.toUpperCase().includes('ADMIN')) ||
                 current.pattern.includes('admin') || current.pattern.includes('audit');
 
@@ -492,7 +576,7 @@ export class SastAnalyzer {
                 line: current.line,
                 endLine: current.line,
                 severity: isCritical ? 'CRITICAL' : 'HIGH',
-                description: `Нарушение порядка правил авторизации (Prefix Shadowing): маршрут "${current.pattern}" открыт через permitAll() перед защищённым правилом "${subsequent.pattern}" (${subsequent.role || 'authenticated'})`,
+                description: `Нарушение порядка правил авторизации (shadowing): permitAll("${current.pattern}") перекрывает защищённое правило "${subsequent.pattern}" (${subsequent.role || 'authenticated'})`,
                 remediation: `Поместить защищённое правило "${subsequent.pattern}" выше permitAll() или закрыть маршрут соответствующей ролью`
               });
               break;
@@ -528,7 +612,8 @@ export class SastAnalyzer {
     relPath: string,
     controllers: ControllerEndpoint[],
     serviceMethods: ServiceMethod[],
-    repoMethods: RepoMethod[]
+    repoMethods: RepoMethod[],
+    ownerTables: Set<string>
   ): void {
     const fullText = lines.join('\n');
     const isController =
@@ -545,7 +630,7 @@ export class SastAnalyzer {
       /@(?:Repository|Component|Service)\b/.test(fullText);
 
     const hasJdbcCalls =
-      /\b(?:jdbc|jdbcTemplate|namedParameterJdbcTemplate)\s*\.\s*(?:query|queryForObject|queryForList|queryForMap)\b/i.test(fullText);
+      /\b(?:jdbc|jdbcTemplate|namedParameterJdbcTemplate)\s*\.\s*(?:query|queryForObject|queryForList|queryForMap|update|batchUpdate)\b/i.test(fullText);
 
     const isDataAccess = hasDataAnnotation || hasJdbcCalls;
 
@@ -553,12 +638,18 @@ export class SastAnalyzer {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const funMatch = line.match(/fun\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
-        if (funMatch) {
-          const methodName = funMatch[1];
-          const paramStr = funMatch[2];
+        const javaMatch = /^\s*(?:class|interface|enum)\b/.test(line) ? null : line.match(/^\s*(?:(?:public|protected|private)\s+)?(?:static\s+)?[\w<>,.?[\] ]+\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)/);
+        const methodMatch = funMatch || javaMatch;
+        if (methodMatch) {
+        const methodName = methodMatch[1];
+        const paramStr = methodMatch[2];
           const methodLines = lines.slice(i, Math.min(lines.length, i + 25)).join(' ');
 
-          const idParamMatch = paramStr.match(/(?:@PathVariable|@RequestParam)?\s*([a-zA-Z0-9_]*[iI]d|[a-zA-Z0-9_]*[cC]ode|[a-zA-Z0-9_]*[nN]umber)\s*:\s*(?:Long|Int|String|UUID)/g);
+          const annotationStart = Math.max(0, i - 6);
+          const annotations = lines.slice(annotationStart, i).join(' ');
+          const mappingMatch = annotations.match(/@(?:Get|Post|Put|Patch|Delete)Mapping\s*\(([^)]*)\)/);
+          const pathIds = Array.from((mappingMatch?.[1] || '').matchAll(/\{[^}]*?(?:id|code|number)[^}]*\}/gi), match => match[0]);
+          const idParamMatch = paramStr.match(/(?:@PathVariable|@RequestParam)?\s*([a-zA-Z0-9_]*[iI]d|[a-zA-Z0-9_]*[cC]ode|[a-zA-Z0-9_]*[nN]umber)\s*:\s*(?:Long|Int|String|UUID)|(?:Long|Integer|String|UUID)\s+([a-zA-Z0-9_]*[iI]d|[a-zA-Z0-9_]*[cC]ode|[a-zA-Z0-9_]*[nN]umber)/g);
 
           const hasPrincipal =
             /Principal|Authentication|@AuthenticationPrincipal|SecurityContextHolder/i.test(paramStr) ||
@@ -573,13 +664,13 @@ export class SastAnalyzer {
             calledMethods.push(m[2]);
           }
 
-          if (idParamMatch && idParamMatch.length > 0) {
+          if ((idParamMatch && idParamMatch.length > 0) || pathIds.length > 0) {
             controllers.push({
               filePath: relPath,
               methodName,
               startLine: i + 1,
               endLine: Math.min(lines.length, i + 15),
-              idParamNames: idParamMatch,
+              idParamNames: idParamMatch || pathIds,
               hasPrincipal,
               hasSecurityAnnotation,
               calledMethods
@@ -593,9 +684,11 @@ export class SastAnalyzer {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const funMatch = line.match(/fun\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
-        if (funMatch) {
-          const methodName = funMatch[1];
-          const paramStr = funMatch[2];
+        const javaMatch = /^\s*(?:class|interface|enum)\b/.test(line) ? null : line.match(/^\s*(?:(?:public|protected|private)\s+)?(?:static\s+)?[\w<>,.?[\] ]+\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)/);
+        const methodMatch = funMatch || javaMatch;
+        if (methodMatch) {
+          const methodName = methodMatch[1];
+          const paramStr = methodMatch[2];
           const methodLines = lines.slice(i, Math.min(lines.length, i + 25)).join(' ');
 
           const hasPrincipal =
@@ -628,15 +721,18 @@ export class SastAnalyzer {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const funMatch = line.match(/fun\s+([a-zA-Z0-9_]+)\s*\(/);
-        if (funMatch) {
-          const methodName = funMatch[1];
+        const javaMatch = /^\s*(?:class|interface|enum)\b/.test(line) ? null : line.match(/^\s*(?:(?:public|protected|private)\s+)?(?:static\s+)?[\w<>,.?[\] ]+\s+([a-zA-Z_]\w*)\s*\(/);
+        const methodMatch = funMatch || javaMatch;
+        if (methodMatch) {
+          const methodName = methodMatch[1];
           const methodStartLine = i + 1;
           const methodSlice = lines.slice(i, Math.min(lines.length, i + 15));
           const methodText = methodSlice.join(' ');
 
-          const queryMatch = methodText.match(/(?:"""|["'])([\s\S]*?(?:SELECT|DELETE|UPDATE)\b[\s\S]*?)(?:"""|["'])/i);
-          if (queryMatch) {
-            const queryText = queryMatch[1];
+          const queryText = Array.from(methodText.matchAll(/"""([\s\S]*?)"""|"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g))
+            .map(match => match[1] ?? match[2] ?? match[3] ?? '')
+            .find(value => /\b(?:SELECT|DELETE|UPDATE)\b/i.test(value));
+          if (queryText) {
             let queryLine = methodStartLine;
             for (let k = 0; k < methodSlice.length; k++) {
               if (methodSlice[k].includes(queryText.substring(0, Math.min(queryText.length, 20)))) {
@@ -645,7 +741,9 @@ export class SastAnalyzer {
               }
             }
 
-            const filtersById = /WHERE\s+[a-zA-Z0-9_]*id\s*=\s*(?:\?|:[a-zA-Z0-9_]+)/i.test(queryText);
+            const executedByJdbc =
+              /\b(?:jdbc|jdbcTemplate|namedParameterJdbcTemplate)\s*\.\s*(?:query|queryForObject|queryForList|queryForMap|update|batchUpdate)\s*\(/i.test(methodText);
+            const filtersById = /WHERE\s+(?:[a-zA-Z_]\w*\.)?["`]?[\w]*id["`]?\s*=\s*(?:\?|:[a-zA-Z0-9_]+)/i.test(queryText);
 
             const ownerRoots = [
               'customer', 'owner', 'user', 'account', 'client', 'holder',
@@ -654,18 +752,15 @@ export class SastAnalyzer {
             const rootsGroup = ownerRoots.join('|');
 
             const ownerQueryRegex = new RegExp(
-              `\\b(?:${rootsGroup})[-_]?(?:id|account|uuid|no|code|ref|key|name)?\\s*=\\s*(?:\\?|:[a-zA-Z0-9_]+)`,
+              `\\b(?:${rootsGroup})(?:[-_](?:${rootsGroup}))?[-_]?(?:id|account|uuid|no|code|ref|key|name)?\\s*=\\s*(?:\\?|:[a-zA-Z0-9_]+)`,
               'i'
             );
             const hasOwnerCheckInQuery = ownerQueryRegex.test(queryText);
 
-            const ownerContextRegex = new RegExp(
-              `\\b(?:${rootsGroup})[-_]?(?:id|account|uuid|no|code|ref|key|name)?\\b|\\b(?:${rootsGroup})(?:Id|Account|Uuid|No|Code|Ref|Key|Name)?\\b`,
-              'i'
-            );
-            const hasOwnerColumnInContext = ownerContextRegex.test(fullText);
+            const tableMatch = queryText.match(/\b(?:FROM|UPDATE|JOIN)\s+["`]?([a-zA-Z_][\w.]*)["`]?/i);
+            const tableName = tableMatch?.[1].split('.').pop()?.toLowerCase() || '';
 
-            if (filtersById) {
+            if (filtersById && executedByJdbc && tableName) {
               repoMethods.push({
                 filePath: relPath,
                 methodName,
@@ -673,8 +768,8 @@ export class SastAnalyzer {
                 endLine: methodStartLine + methodSlice.length,
                 queryLine,
                 queryText,
-                hasOwnerCheckInQuery,
-                hasOwnerColumnInContext
+                tableName,
+                hasOwnerCheckInQuery
               });
             }
           }
@@ -686,7 +781,8 @@ export class SastAnalyzer {
   private resolveObjectAuthorization(
     controllers: ControllerEndpoint[],
     serviceMethods: ServiceMethod[],
-    repoMethods: RepoMethod[]
+    repoMethods: RepoMethod[],
+    ownerTables: Set<string>
   ): SastFinding[] {
     const findings: SastFinding[] = [];
     const reportedRepoMethods = new Set<string>();
@@ -719,7 +815,7 @@ export class SastAnalyzer {
             }
           }
 
-          if ((isDirectlyCalled || isTwoHopCalled) && !repo.hasOwnerCheckInQuery && repo.hasOwnerColumnInContext) {
+          if ((isDirectlyCalled || isTwoHopCalled) && !repo.hasOwnerCheckInQuery && ownerTables.has(repo.tableName)) {
             const repoKey = `${repo.filePath}:${repo.startLine}`;
             if (!reportedRepoMethods.has(repoKey)) {
               reportedRepoMethods.add(repoKey);

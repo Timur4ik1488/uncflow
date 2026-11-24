@@ -4,6 +4,10 @@ import * as crypto from 'crypto';
 import _sodium from 'libsodium-wrappers';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
+import { pipeline } from 'stream/promises';
+import { Busboy } from '@fastify/busboy';
+import * as yauzl from 'yauzl';
 
 import { NodeRegistry } from './nodes/registry.ts';
 import { WorkflowEngine } from './engine/workflow-engine.ts';
@@ -125,6 +129,178 @@ const server = http.createServer(async (req, res) => {
     // =========================================================================
     // AUTHENTICATION & USER PROFILES (GitHub & GitVerse Integration)
     // =========================================================================
+
+    if (req.method === 'POST' && pathname === '/api/sources/local-archive') {
+      const user = await getUserFromRequest(req);
+      const uploadRoot = path.resolve(process.cwd(), 'uploads', randomUUID());
+      const archivePath = `${uploadRoot}.zip`;
+      const maxFiles = 1000;
+      const maxFileSize = 20 * 1024 * 1024;
+      const maxTotalSize = 100 * 1024 * 1024;
+      const maxArchiveSize = 100 * 1024 * 1024;
+      let uploadError: Error | undefined;
+      let archiveReceived = false;
+      let archiveWrite: Promise<void> | undefined;
+
+      try {
+        await fs.promises.mkdir(uploadRoot, { recursive: true });
+        const parser = Busboy({
+          headers: req.headers as { 'content-type': string },
+          limits: { files: 1, fileSize: maxArchiveSize, fields: 0, parts: 1 }
+        });
+
+        parser.on('file', (fieldName, file, filename) => {
+          if (fieldName !== 'archive' || !filename.toLowerCase().endsWith('.zip') || archiveReceived) {
+            uploadError ??= new Error('Можно загрузить только один ZIP-архив.');
+            file.resume();
+            return;
+          }
+
+          archiveReceived = true;
+          archiveWrite = pipeline(file, fs.createWriteStream(archivePath, { flags: 'wx' }))
+            .then(() => {
+              if (file.truncated) {
+                throw new Error('Размер ZIP-архива превышает ограничение 100 МБ.');
+              }
+            })
+            .catch((err: Error) => {
+              uploadError ??= err;
+            });
+        });
+
+        parser.on('field', () => {
+          uploadError ??= new Error('Запрос должен содержать только один ZIP-архив.');
+        });
+        parser.on('filesLimit', () => uploadError ??= new Error('Можно загрузить только один ZIP-архив.'));
+
+        await new Promise<void>((resolve, reject) => {
+          parser.once('error', reject);
+          parser.once('finish', resolve);
+          req.once('error', reject);
+          req.pipe(parser);
+        });
+        await archiveWrite;
+
+        if (uploadError) throw uploadError;
+        if (!archiveReceived) {
+          throw new Error('Выберите ZIP-архив для загрузки.');
+        }
+
+        const signature = Buffer.alloc(4);
+        const archiveHandle = await fs.promises.open(archivePath, 'r');
+        try {
+          await archiveHandle.read(signature, 0, signature.length, 0);
+        } finally {
+          await archiveHandle.close();
+        }
+        if (signature[0] !== 0x50 || signature[1] !== 0x4b) {
+          throw new Error('Файл не является корректным ZIP-архивом.');
+        }
+
+        let fileCount = 0;
+        let totalBytes = 0;
+        const zipFile = await new Promise<yauzl.ZipFile>((resolve, reject) => {
+          yauzl.open(archivePath, { lazyEntries: true, autoClose: false }, (err, zip) => {
+            if (err || !zip) reject(err || new Error('Не удалось открыть ZIP-архив.'));
+            else resolve(zip);
+          });
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const fail = (err: Error) => {
+            if (settled) return;
+            settled = true;
+            zipFile.close();
+            reject(err);
+          };
+
+          zipFile.on('error', fail);
+          zipFile.on('end', () => {
+            if (settled) return;
+            settled = true;
+            zipFile.close();
+            resolve();
+          });
+          zipFile.on('entry', entry => {
+            void (async () => {
+              const isDirectory = entry.fileName.endsWith('/');
+              const entryName = entry.fileName.replace(/\\/g, '/').replace(/\/+$/, '');
+              const pathParts: string[] = entryName.split('/');
+              const mode = (entry.externalFileAttributes >>> 16) & 0xf000;
+              if (
+                !entryName ||
+                entryName.startsWith('/') ||
+                /^[a-zA-Z]:/.test(entryName) ||
+                pathParts.some(part => !part || part === '.' || part === '..') ||
+                (mode !== 0 && mode !== 0x8000 && mode !== 0x4000) ||
+                (isDirectory && mode === 0x8000) ||
+                (!isDirectory && mode === 0x4000)
+              ) {
+                throw new Error('В ZIP-архиве обнаружен недопустимый путь или тип файла.');
+              }
+
+              const destination = path.resolve(uploadRoot, ...pathParts);
+              const relativePath = path.relative(uploadRoot, destination);
+              if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+                throw new Error('Путь в ZIP-архиве выходит за пределы проекта.');
+              }
+
+              if (isDirectory) {
+                await fs.promises.mkdir(destination, { recursive: true });
+                zipFile.readEntry();
+                return;
+              }
+
+              fileCount += 1;
+              if (fileCount > maxFiles) {
+                throw new Error('В архиве слишком много файлов (максимум 1000).');
+              }
+              if (entry.uncompressedSize > maxFileSize) {
+                throw new Error('Размер одного из файлов в архиве превышает ограничение 20 МБ.');
+              }
+              totalBytes += entry.uncompressedSize;
+              if (totalBytes > maxTotalSize) {
+                throw new Error('Общий размер файлов в архиве превышает ограничение 100 МБ.');
+              }
+
+              await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+              await new Promise<void>((streamResolve, streamReject) => {
+                zipFile.openReadStream(entry, (err, readStream) => {
+                  if (err || !readStream) {
+                    streamReject(err || new Error('Не удалось прочитать файл из ZIP-архива.'));
+                    return;
+                  }
+                  pipeline(readStream, fs.createWriteStream(destination, { flags: 'wx' }))
+                    .then(() => streamResolve(), streamReject);
+                });
+              });
+              zipFile.readEntry();
+            })().catch(fail);
+          });
+          zipFile.readEntry();
+        });
+
+        if (fileCount === 0) {
+          throw new Error('В ZIP-архиве не найдены файлы проекта.');
+        }
+        await fs.promises.rm(archivePath, { force: true });
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          path: uploadRoot,
+          fileCount,
+          totalBytes
+        }));
+      } catch (err: any) {
+        await fs.promises.rm(uploadRoot, { recursive: true, force: true });
+        await fs.promises.rm(archivePath, { force: true });
+        const message = err?.message || 'Не удалось загрузить ZIP-архив проекта.';
+        const statusCode = /превышает ограничение|слишком много файлов/i.test(message) ? 413 : 400;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: message }));
+      }
+      return;
+    }
 
     // POST /api/auth/register
     if (req.method === 'POST' && pathname === '/api/auth/register') {

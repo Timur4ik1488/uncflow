@@ -1,0 +1,188 @@
+{
+  "name": "uncflow-security",
+  "displayName": "uncflow Security Audit",
+  "description": "Инспекция и аудит безопасности проектов прямо в VS Code с помощью платформы uncflow",
+  "version": "1.0.0",
+  "publisher": "uncflow",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Linters",
+    "Security",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "security",
+    "sast",
+    "sca",
+    "secrets",
+    "audit",
+    "uncflow",
+    "gigachat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "uncflow.runLastScenario",
+        "title": "uncflow: Запустить аудит безопасности",
+        "icon": "$(play)",
+        "shortTitle": "Запуск"
+      },
+      {
+        "command": "uncflow.selectAndRunScenario",
+        "title": "uncflow: Выбрать сценарий аудита...",
+        "icon": "$(list-unordered)",
+        "shortTitle": "Сценарии"
+      },
+      {
+        "command": "uncflow.scanCurrentFile",
+        "title": "uncflow: Проверить текущий файл (Быстрый SAST / Secrets)",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "uncflow.openDashboard",
+        "title": "uncflow: Открыть веб-панель uncflow",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "uncflow.openSettings",
+        "title": "uncflow: Настройки подключения",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "uncflow.login",
+        "title": "uncflow: Войти на сервер",
+        "icon": "$(account)"
+      },
+      {
+        "command": "uncflow.logout",
+        "title": "uncflow: Выйти с сервера",
+        "icon": "$(sign-out)"
+      },
+      {
+        "command": "uncflow.clearFindings",
+        "title": "uncflow: Очистить результаты аудита",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "uncflow.refreshTree",
+        "title": "uncflow: Обновить список проблем",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "uncflow.runLastScenario",
+          "group": "navigation@1",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "uncflow.selectAndRunScenario",
+          "group": "navigation@2",
+          "when": "workspaceFolderCount > 0"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "uncflow.scanCurrentFile",
+          "group": "uncflow@1"
+        },
+        {
+          "command": "uncflow.runLastScenario",
+          "group": "uncflow@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "uncflow.runLastScenario",
+          "when": "view == uncflow.views.findings",
+          "group": "navigation@1"
+        },
+        {
+          "command": "uncflow.refreshTree",
+          "when": "view == uncflow.views.findings",
+          "group": "navigation@2"
+        },
+        {
+          "command": "uncflow.clearFindings",
+          "when": "view == uncflow.views.findings",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "uncflow-sidebar",
+          "title": "uncflow Security",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "uncflow-sidebar": [
+        {
+          "id": "uncflow.views.findings",
+          "name": "Найденные уязвимости",
+          "type": "tree"
+        },
+        {
+          "id": "uncflow.views.details",
+          "name": "AI Экспертиза и Рекомендации",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "uncflow Security",
+      "properties": {
+        "uncflow.serverUrl": {
+          "type": "string",
+          "default": "https://uncflow.duckdns.org",
+          "description": "URL сервера платформы uncflow (по умолчанию https://uncflow.duckdns.org)"
+        },
+        "uncflow.defaultWorkflowId": {
+          "type": "string",
+          "default": "template-full-audit",
+          "description": "ID сценария аудита по умолчанию (например template-full-audit)"
+        },
+        "uncflow.apiToken": {
+          "type": "string",
+          "default": "",
+          "description": "Токен доступа к API платформы uncflow (опционально, если на сервере включена защита CI_API_TOKEN)"
+        },
+        "uncflow.runOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Автоматически проверять проект при сохранении файлов"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "node esbuild.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^2.24.0",
+    "archiver": "^7.0.1",
+    "@types/archiver": "^6.0.2",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1"
+  }
+}

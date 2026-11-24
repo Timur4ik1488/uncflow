@@ -459,6 +459,92 @@ export class SecretAnalyzer {
       }
     }
 
+    const literalVars = new Map<string, { value: string; line: number }>();
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(/(?:val|var)\s+([a-zA-Z0-9_]+)\s*(?::\s*String)?\s*=\s*["']([^"']*)["']/);
+      if (match) literalVars.set(match[1], { value: match[2], line: i + 1 });
+    }
+
+    const decodedVars = new Map<string, { value: string; startLine: number; decodeLine: number }>();
+    const authHeader = /(?:setBearerAuth|Authorization|X-Api-Key|Api-Key|X-Auth-Token|X-Access-Token)/i;
+    const fullText = lines.join('\n');
+    const lineAt = (offset: number): number => fullText.slice(0, offset).split('\n').length;
+    const decodeRegex = /Base64\.getDecoder\(\)\s*\.\s*decode\(\s*(?:"([^"]*)"|'([^']*)'|([a-zA-Z_]\w*))\s*\)/gs;
+    for (const match of fullText.matchAll(decodeRegex)) {
+      const matchIndex = match.index!;
+      const decodeLine = lineAt(matchIndex);
+      const encoded = match[1] ?? match[2] ?? (match[3] ? literalVars.get(match[3])?.value : undefined);
+      if (!encoded || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) continue;
+
+      let decoded: string;
+      try {
+        decoded = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(encoded, 'base64'));
+      } catch {
+        continue;
+      }
+
+      const prefix = fullText.slice(Math.max(0, matchIndex - 500), matchIndex);
+      const assignment = prefix.match(/(?:val|var)\s+([a-zA-Z_]\w*)\s*(?::\s*String)?\s*=\s*[^;\n]*$/);
+      const decodedName = assignment?.[1];
+      const startLine = match[3] ? (literalVars.get(match[3])?.line ?? decodeLine) : decodeLine;
+      if (decodedName) decodedVars.set(decodedName, { value: decoded, startLine, decodeLine });
+
+      let authUseLine = -1;
+      if (decodedName) {
+        const escapedName = decodedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const variableReference = new RegExp(`\\b${escapedName}\\b`);
+        const remaining = fullText.slice(match.index! + match[0].length).split('\n');
+        for (let j = 0; j < remaining.length; j++) {
+          if (authHeader.test(remaining[j]) && variableReference.test(remaining[j])) {
+            authUseLine = lineAt(match.index! + match[0].length) + j;
+            break;
+          }
+        }
+      } else if (authHeader.test(fullText.slice(Math.max(0, matchIndex - 300), match.index! + match[0].length))) {
+        authUseLine = decodeLine;
+      }
+
+      if ((decoded.length >= 12 && calculateEntropy(decoded) > 3.1) || authUseLine !== -1) {
+        const endLine = authUseLine === -1 ? lineAt(match.index! + match[0].length - 1) : authUseLine;
+        if (!reportedRecoverableLines.has(startLine)) {
+          reportedRecoverableLines.add(startLine);
+          findings.push({
+            category: 'SECRET',
+            path: relPath,
+            class: 'recoverable-token',
+            line: startLine,
+            endLine,
+            severity: 'MEDIUM',
+            description: `Токен восстанавливается из Base64 (${maskSecret(decoded)})`,
+            remediation: 'Хранить токен в окружении или защищённом хранилище вместо обратимо закодированного значения'
+          });
+        }
+      }
+    }
+
+    for (const [name, decoded] of decodedVars) {
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const variableReference = new RegExp(`\\b${escapedName}\\b`);
+      const remaining = fullText.slice(fullText.split('\n').slice(0, decoded.decodeLine).join('\n').length + 1).split('\n');
+      for (let j = 0; j < remaining.length; j++) {
+        if (!authHeader.test(remaining[j]) || !variableReference.test(remaining[j])) continue;
+        if (!reportedRecoverableLines.has(decoded.startLine)) {
+          reportedRecoverableLines.add(decoded.startLine);
+          findings.push({
+            category: 'SECRET',
+            path: relPath,
+            class: 'recoverable-token',
+            line: decoded.startLine,
+            endLine: decoded.decodeLine + j + 1,
+            severity: 'MEDIUM',
+            description: `Токен восстанавливается из Base64 (${maskSecret(decoded.value)})`,
+            remediation: 'Хранить токен в окружении или защищённом хранилище вместо обратимо закодированного значения'
+          });
+        }
+        break;
+      }
+    }
+
     return findings;
   }
 
